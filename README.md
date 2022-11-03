@@ -1,2 +1,2 @@
 # largesort-js
-Library to sort large amount of data of a file
+Library to sort large amount of data from a file

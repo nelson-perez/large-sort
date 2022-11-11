@@ -1,2 +1,2 @@
 # large-sort
-Large file sorting library using external merge sort for NodeJS"
+Library to sort content of large files using external merge sort for NodeJS

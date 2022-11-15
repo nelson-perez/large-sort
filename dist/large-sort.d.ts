@@ -8,4 +8,4 @@
  * @param compareFn Function used to sort the {@link TValue} for each of the files.
  * @param linesPerFile Number of lines processed before writting a split file.
  */
-export default function sortFile<TValue>(inputFile: string, outputFile: string, inputMapFn: (x: string) => TValue, outputMapFn: (x: TValue) => string, extractSortPropertyFn?: (x: TValue) => any, linesPerFile?: number): Promise<void>;
+export declare function sortFile<TValue>(inputFile: string, outputFile: string, inputMapFn: (x: string) => TValue, outputMapFn: (x: TValue) => string, compareFn?: (a: TValue, b: TValue) => number, linesPerFile?: number): Promise<void>;

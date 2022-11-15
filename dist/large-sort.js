@@ -23,17 +23,16 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.sortFile = void 0;
 const fs = __importStar(require("fs"));
 const readline = __importStar(require("readline"));
 const path = __importStar(require("path"));
 const os = __importStar(require("os"));
-const fast_sort_1 = require("fast-sort");
-// Global variable to collect all the cleanup functions
-const sortFileToClean = new Array();
-function cleanup() {
-    for (let i = 0; i < sortFileToClean.length; i++) {
+// Global variable to collect the cleanup functions for all lingering sort
+const sortFileToClean = new Map();
+function cleanTempFiles() {
+    for (let cleanFn of sortFileToClean.values()) {
         try {
-            let cleanFn = sortFileToClean[i];
             cleanFn();
         }
         catch {
@@ -41,7 +40,7 @@ function cleanup() {
         }
     }
 }
-process.on('exit', cleanup);
+process.on('exit', cleanTempFiles);
 /**
  * Function to sorts the file into another file.
  *
@@ -52,29 +51,30 @@ process.on('exit', cleanup);
  * @param compareFn Function used to sort the {@link TValue} for each of the files.
  * @param linesPerFile Number of lines processed before writting a split file.
  */
-async function sortFile(inputFile, outputFile, inputMapFn, outputMapFn, extractSortPropertyFn = (x) => x, linesPerFile = 100000) {
+async function sortFile(inputFile, outputFile, inputMapFn, outputMapFn, compareFn = (a, b) => a == b ? 0 : (a > b ? 1 : -1), linesPerFile = 100000) {
     const base = path.join(os.tmpdir(), 'large-sort');
     if (!fs.existsSync(base)) {
         fs.mkdirSync(base, { recursive: true });
     }
     const tempFolder = fs.mkdtempSync(path.join(base, "temp_"));
     const tempFiles = new Array();
-    sortFileToClean.push(() => deleteFiles(tempFolder));
+    sortFileToClean.set(tempFolder, () => deleteFiles(tempFolder));
     try {
-        console.debug(`[SortFile] started split of file "${inputFile}". ${new Date().toLocaleString()}`);
-        console.time(`[SortFile] finished split of file "${inputFile}" time`);
-        await split(inputFile, tempFolder, tempFiles, inputMapFn, JSON.stringify, extractSortPropertyFn, linesPerFile);
-        console.timeEnd(`[SortFile] finished split of file "${inputFile}" time`);
-        console.debug(`[SortFile] started merge to file "${outputFile}". ${new Date().toLocaleString()}`);
-        console.time(`[SortFile] finished merge to file "${outputFile}" time`);
-        await merge(tempFiles, outputFile, JSON.parse, outputMapFn, extractSortPropertyFn, linesPerFile);
-        console.timeEnd(`[SortFile] finished merge to file "${outputFile}" time`);
+        // console.debug(`[SortFile] started split of file "${inputFile}". ${new Date().toLocaleString()}`);
+        // console.time(`[SortFile] finished split of file "${inputFile}" time`);
+        await split(inputFile, tempFolder, tempFiles, inputMapFn, JSON.stringify, compareFn, linesPerFile);
+        // console.timeEnd(`[SortFile] finished split of file "${inputFile}" time`);
+        // console.debug(`[SortFile] started merge to file "${outputFile}". ${new Date().toLocaleString()}`);
+        // console.time(`[SortFile] finished merge to file "${outputFile}" time`);
+        await merge(tempFiles, outputFile, JSON.parse, outputMapFn, compareFn);
+        // console.timeEnd(`[SortFile] finished merge to file "${outputFile}" time`);
     }
     finally {
         deleteFiles(tempFolder);
+        sortFileToClean.delete(tempFolder);
     }
 }
-exports.default = sortFile;
+exports.sortFile = sortFile;
 function deleteFiles(tempFolder) {
     try {
         fs.rmdirSync(tempFolder);
@@ -92,11 +92,8 @@ function deleteFiles(tempFolder) {
  * @param compareFn Function used to sort the {@link TValue} for each of the files.
  * @param linesPerFile How many lines process for each file.
  */
-async function split(filePath, splitPath, outputFiles, inputMapFn, outputMapFn, extractSortPropertyFn, linesPerFile) {
+async function split(filePath, splitPath, outputFiles, inputMapFn, outputMapFn, compareFn, linesPerFile) {
     linesPerFile = Math.floor(linesPerFile);
-    const compareFn = (a, b) => extractSortPropertyFn(a) > extractSortPropertyFn(b) ? 1 : -1;
-    const sortFn = (x) => x.length > 1500 ? (0, fast_sort_1.sort)(x).asc([extractSortPropertyFn]) :
-        x.sort(compareFn);
     const readStream = fs.createReadStream(filePath, { highWaterMark: 1000000, flags: 'r' });
     const reader = readline.createInterface({
         input: readStream
@@ -107,14 +104,14 @@ async function split(filePath, splitPath, outputFiles, inputMapFn, outputMapFn, 
         if (line.trim() != '')
             buffer.push(inputMapFn(line));
         linesLoaded++;
-        if (linesLoaded % 1000000 == 0) {
-            console.debug(`[SortFile] ("${filePath}"): loaded ${linesLoaded.toLocaleString()} lines. ${new Date().toLocaleString()}`);
-        }
+        // if(linesLoaded % 1000000 == 0) {
+        //     console.debug(`[SortFile] ("${filePath}"): loaded ${linesLoaded.toLocaleString()} lines. ${new Date().toLocaleString()}`);
+        // }
         // Flush buffer at the specified lines per file or when it is using more than 1GB of RAM
         if (linesLoaded % linesPerFile == 0 || (linesLoaded % 1000 == 0 && (process.memoryUsage().heapUsed / 1024 / 1024 / 1024) > 1)) {
             let bufferCopy = buffer;
             buffer = new Array();
-            flushBuffer(bufferCopy, linesLoaded, splitPath, outputFiles, outputMapFn, sortFn);
+            flushBuffer(bufferCopy, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn);
         }
     });
     // Wait till it finishes reading the file
@@ -122,9 +119,9 @@ async function split(filePath, splitPath, outputFiles, inputMapFn, outputMapFn, 
     readStream.close();
     // Process the last buffer if needed
     if (buffer.length != 0) {
-        flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, sortFn);
+        flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn);
     }
-    console.debug(`[SortFile] ("${filePath}"): loaded ${linesLoaded.toLocaleString()} lines. ${new Date().toLocaleString()}`);
+    // console.debug(`[SortFile] ("${filePath}"): loaded ${linesLoaded.toLocaleString()} lines. ${new Date().toLocaleString()}`);
 }
 /**
  * Helper function to process the buffer.
@@ -137,13 +134,13 @@ async function split(filePath, splitPath, outputFiles, inputMapFn, outputMapFn, 
  * @param outputMapFn Function serialize each of the {@link TValue} to a string.
  * @param compareFn Function used to sort the {@link TValue} for each of the files.
  */
-function flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, sortFn) {
+function flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn) {
     const filename = path.join(splitPath, `large-sort_${String(linesLoaded).padStart(10, '0')}.txt`);
     // console.time(`[SortFile.Split] Sort ${buffer.length} items time`);
-    let sorted = sortFn(buffer);
+    buffer.sort(compareFn);
     // console.timeEnd(`[SortFile.Split] Sort ${buffer.length} items time`);
     // console.time('[SortFile.Split]  Map items time')
-    let mapped = sorted.map(outputMapFn);
+    let mapped = buffer.map(outputMapFn);
     mapped.push(''); // Extra so it has a new line at the end.
     // console.timeEnd('[SortFile.Split]  Map items time')
     // console.time('[SortFile.Split]  String Join items time')
@@ -154,13 +151,13 @@ function flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, s
     // console.timeEnd('[SortFile.Split]  Write to disk time')
     outputFiles.push(filename);
 }
-async function merge(files, resultFile, inputMapFn, outputMapFn, extractSortPropertyFn, linesPerFile) {
+async function merge(files, resultFile, inputMapFn, outputMapFn, compareFn) {
     let readers = new Array();
     let mergedItems = 0;
     // Create readers
     for (let i = 0; i < files.length; i++) {
         const f = files[i];
-        const readStream = fs.createReadStream(f, { highWaterMark: 1000000, flags: 'r' });
+        const readStream = fs.createReadStream(f, { highWaterMark: 100000, flags: 'r' });
         const reader = readline.createInterface({
             input: readStream,
             crlfDelay: Infinity
@@ -181,12 +178,9 @@ async function merge(files, resultFile, inputMapFn, outputMapFn, extractSortProp
             readStream.close();
         }
     }
-    const descCompareFn = (a, b) => extractSortPropertyFn(a.data) < extractSortPropertyFn(b.data) ? 1 : -1;
-    const descSortFn = (array) => array.length > 1500 ?
-        (0, fast_sort_1.sort)(array).desc([x => extractSortPropertyFn(x.data)]) :
-        array.sort(descCompareFn);
     // Reverse sort based on the to do the merge
-    readers = descSortFn(readers);
+    let mergerInfoReverseCompareFn = (a, b) => compareFn(b.data, a.data);
+    readers.sort(mergerInfoReverseCompareFn);
     var resultStream = fs.createWriteStream(resultFile, { highWaterMark: 10000000, flags: 'w' });
     let writeBuffer = new Array();
     let previousPromise = Promise.resolve();
@@ -194,7 +188,6 @@ async function merge(files, resultFile, inputMapFn, outputMapFn, extractSortProp
     const maxStringLength = Math.pow(2, 23) * .90; // 90% of the node js string max length
     // Wait till the result stream is open
     await new Promise((r) => resultStream.once('open', () => r()));
-    //resultStream.once('open', async (fd) => {
     while (readers.length > 0) {
         const mergerInfo = readers[readers.length - 1];
         readers.length--;
@@ -202,18 +195,17 @@ async function merge(files, resultFile, inputMapFn, outputMapFn, extractSortProp
         let dataStr = outputMapFn(mergerInfo.data);
         writeBuffer.push(dataStr);
         bufferStringSize += dataStr.length;
-        if (writeBuffer.length > linesPerFile || bufferStringSize > maxStringLength) {
+        if (bufferStringSize > maxStringLength) {
             writeBuffer.push('');
             let bufferStr = writeBuffer.join('\n');
             writeBuffer = new Array();
             bufferStringSize = 0;
             await previousPromise;
             previousPromise = new Promise((res) => resultStream.write(bufferStr, () => res()));
-            // resultStream.write(bufferStr);
         }
-        if (mergedItems % 1000000 == 0) {
-            console.debug(`[SortFile] ${mergedItems.toLocaleString()} merged items.`);
-        }
+        // if(mergedItems % 1000000 == 0) {
+        //     console.debug(`[SortFile] ${mergedItems.toLocaleString()} merged items.`);
+        // }
         var next;
         do {
             next = await mergerInfo.iter.next();
@@ -221,8 +213,8 @@ async function merge(files, resultFile, inputMapFn, outputMapFn, extractSortProp
         if (!(next.done ?? false)) {
             mergerInfo.data = inputMapFn(next.value);
             mergerInfo.done = next.done ?? false;
-            // Reverse sort again based on the added new data.
-            let insertIdx = binarySearch(mergerInfo, readers, descCompareFn);
+            // Binary Search the index of equal or less than mergeInfo
+            let insertIdx = binarySearch(mergerInfo, readers, mergerInfoReverseCompareFn);
             readers.splice(insertIdx, 0, mergerInfo);
         }
         else {
@@ -236,31 +228,31 @@ async function merge(files, resultFile, inputMapFn, outputMapFn, extractSortProp
     if (writeBuffer.length > 0) {
         mergedItems += writeBuffer.length;
         await new Promise((resolve) => resultStream.write(writeBuffer.join('\n'), () => resolve()));
-        console.debug(`[SortFile] ${mergedItems.toLocaleString()} merged items.`);
+        // console.debug(`[SortFile] ${mergedItems.toLocaleString()} merged items.`);
     }
     resultStream.close();
 }
-function binarySearch(ti, ar, compareFn) {
+function binarySearch(target, array, compareFn) {
     let start = 0;
-    let end = ar.length;
+    let end = array.length;
     while (start != end - 1) {
         let mid = Math.floor((start + end) / 2);
-        let pivot = ar[mid];
+        let pivot = array[mid];
         if (mid == 0) {
             return mid;
         }
-        let beforePivot = ar[mid - 1];
-        if (compareFn(pivot, ti) > 0 && compareFn(beforePivot, ti) < 0) {
+        let beforePivot = array[mid - 1];
+        if (compareFn(pivot, target) >= 0 && compareFn(beforePivot, target) < 0) {
             return mid;
         }
-        else if (compareFn(pivot, ti) > 0) {
+        else if (compareFn(pivot, target) > 0) {
             end = mid;
         }
         else {
             start = mid;
         }
     }
-    if (start == ar.length - 1 && compareFn(ar[start], ti) < 0) {
+    if (start == array.length - 1 && compareFn(array[start], target) < 0) {
         return start + 1;
     }
     return start;

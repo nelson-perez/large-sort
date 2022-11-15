@@ -1,15 +1,25 @@
 {
   "name": "large-sort",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "commonjs",
-  "description": "Large file sorting library using external merge sort for NodeJS",
-  "main": "dist/large-sort.js",
+  "description": "Fast Large file sorting library using external merge sort for NodeJS",
+  "main": "./lib/large-sort.js",
   "scripts": {
-    "build": "npm run clean && tsc",
-    "clean": "node .\node_modules\rimraf\rimraf.js ./dist"
+    "clean": "rimraf ./lib",
+    "build": "tsc",
+    "clean-build": "npm run clean && npm run build",
+    "prepack": "npm run clean-build"
   },
-  "author": "Nelson J Perez <nperez@nelsonperez.com>",
+  "author": {
+    "name": "Nelson J Perez",
+    "email": "nperez@nelsonperez.com"
+  },
   "license": "GNU",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nelson-perez/large-sort"
+  },
+  "homepage": "https://github.com/nelson-perez/large-sort#readme",
   "keywords": [
     "sort",
     "sorting",
@@ -18,10 +28,12 @@
     "external sorting",
     "sorting algorithm",
     "merge sort",
+    "large files",
     "files",
     "swap",
     "typescript"
   ],
+  "files": ["./lib/**/*"],
   "devDependencies": {
     "@types/node": "^13.1.7",
     "rimraf": "^3.0.2",

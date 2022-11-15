@@ -12,6 +12,9 @@
   "license": "GNU",
   "keywords": [
     "sort",
+    "sorting",
+    "large sort",
+    "external merge sort",
     "external sorting",
     "sorting algorithm",
     "merge sort",

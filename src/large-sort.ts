@@ -208,7 +208,6 @@ async function merge<TValue>(
         const maxStringLength = Math.pow(2, 23) * .90; // 90% of the node js string max length
         // Wait till the result stream is open
         await new Promise<void>((r) => resultStream.once('open', () => r()));
-        //resultStream.once('open', async (fd) => {
         while(readers.length > 0) {
             const mergerInfo: MergerInfo<TValue> = readers[readers.length - 1];
             readers.length--;
@@ -228,7 +227,6 @@ async function merge<TValue>(
                             bufferStr,
                             () => res())
                 );
-                // resultStream.write(bufferStr);
             }
             // if(mergedItems % 1000000 == 0) {
             //     console.debug(`[SortFile] ${mergedItems.toLocaleString()} merged items.`);
@@ -240,7 +238,7 @@ async function merge<TValue>(
             if (!(next.done?? false)) {
                 mergerInfo.data = inputMapFn(next.value);
                 mergerInfo.done = next.done ?? false;
-                // Reverse sort again based on the added new data.
+                // Binary Search the index of equal or less than mergeInfo
                 let insertIdx = binarySearch(mergerInfo, readers, mergerInfoReverseCompareFn);
                 readers.splice(insertIdx, 0, mergerInfo);
             }
@@ -262,30 +260,30 @@ async function merge<TValue>(
 }
 
 function binarySearch<T>(
-    ti: T, 
-    ar: T[],
+    target: T, 
+    array: T[],
     compareFn:  (a:T, b:T) => number): number {
         let start = 0;
-        let end = ar.length;
+        let end = array.length;
         while(start != end - 1) {
             let mid = Math.floor((start + end) / 2);
-            let pivot = ar[mid];
+            let pivot = array[mid];
             if(mid == 0) {
                 return mid;
             }
-            let beforePivot = ar[mid - 1];
-            if(compareFn(pivot, ti) >= 0 && compareFn(beforePivot, ti) < 0)
+            let beforePivot = array[mid - 1];
+            if(compareFn(pivot, target) >= 0 && compareFn(beforePivot, target) < 0)
             {
                 return mid;
             }
-            else if(compareFn(pivot, ti) > 0) {
+            else if(compareFn(pivot, target) > 0) {
                 end = mid;
             }
             else {
                 start = mid;
             }
         }
-        if(start == ar.length - 1 && compareFn(ar[start], ti) < 0) {
+        if(start == array.length - 1 && compareFn(array[start], target) < 0) {
             return start + 1;
         }
         return start;

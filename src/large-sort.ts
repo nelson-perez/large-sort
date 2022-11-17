@@ -33,8 +33,8 @@ export async function sortFile<TValue>(
     outputFile: string,
     inputMapFn: (x: string) => TValue,
     outputMapFn: (x:TValue) => string,
-    compareFn: (a:TValue, b:TValue) => number = (a, b) => a == b? 0 : (a > b? 1 : -1),
-    linesPerFile: number = 100000) {
+    compareFn: (a:TValue, b:TValue) => number = (a, b) => a > b? 1 : -1,
+    linesPerFile: number = 100_000) {
         const base = path.join(os.tmpdir(), 'large-sort');
         if(!fs.existsSync(base)) {
             fs.mkdirSync(base, {recursive: true});
@@ -90,7 +90,8 @@ async function split<TValue>(
         linesPerFile = Math.floor(linesPerFile);
         const readStream = fs.createReadStream(filePath, {highWaterMark: 1_000_000, flags: 'r'});
         const reader = readline.createInterface({
-            input: readStream
+            input: readStream,
+            crlfDelay: Infinity
         });
         let linesLoaded = 0;
         let buffer: Array<TValue> = new Array<TValue>();

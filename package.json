@@ -1,6 +1,6 @@
 {
   "name": "large-sort",
-  "version": "0.1.2-beta",
+  "version": "0.1.2a-beta",
   "type": "commonjs",
   "description": "Fast Large file sorting library using external merge sort for NodeJS",
   "main": "./lib/large-sort.js",

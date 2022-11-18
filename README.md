@@ -9,7 +9,7 @@ Fast sorting library that parses, sorts and serializes the content of large file
 ###### Additional planned features:
 - Enable ***custom delimeters*** for the data via `string` or `regex`.
 - Load the input from a `ReadStream` and output the sorted data into a `WriteStream` instead of file to file.
-- *[${\color{green}Exploring}$]* - Create API to build the sort scenario based on a property/field name or an `extract property function` instead of a comparer function.
+- [ ${\color{green}Exploring}$ ] - Create API to build the sort scenario based on a property/field name or an `extract property function` instead of a comparer function.
   - This is an area of exploration to see if there could be performance advantages utilizing `number` and `string` specific sorting algorithms instead of relying on the comparer.
 
 ## Install

@@ -1,3 +1,4 @@
+[![Node.js CI](https://github.com/nelson-perez/large-sort/actions/workflows/node.js.yml/badge.svg)](https://github.com/nelson-perez/large-sort/actions/workflows/node.js.yml)
 
 ![Large Sort JS](img/large_sort_js.png)
 

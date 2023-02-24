@@ -14,7 +14,7 @@
     "name": "Nelson J Perez",
     "email": "nperez@nelsonperez.com"
   },
-  "license": "GNU",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nelson-perez/large-sort"

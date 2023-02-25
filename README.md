@@ -8,8 +8,8 @@
 Fast sorting library that parses, sorts and serializes the content of large files using [external merge sort](https://en.wikipedia.org/wiki/External_sorting) for NodeJS. Currently there is one function that is called `sortFile()` to sort the file content of large files.
 
 ###### Additional planned features:
-- Enable ***custom delimeters*** for the data via `string` or `regex`.
-- Load the input from a `ReadStream` and output the sorted data into a `WriteStream` instead of file to file.
+- [DONE] Enable ***custom delimeters*** for the data via `string` or `regex`.
+- [DONE] Load the input from a `ReadStream` and output the sorted data into a `WriteStream` instead of file to file.
 - *[**exploring**]* - Create API to build the sort scenario based on a property/field name or an `extract property function` instead of a comparer function.
   - This is an area of exploration to see if there could be performance advantages utilizing `number` and `string` specific sorting algorithms instead of relying on the comparer.
 

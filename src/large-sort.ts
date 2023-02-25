@@ -2,12 +2,13 @@ import * as fs from 'fs';
 import * as readline from 'readline';
 import * as path from 'path';
 import * as os from 'os';
+import { Transform } from 'stream'
 
-// Global variable to collect the cleanup functions for all lingering sort
-const sortFileToClean = new Map<string, () => void>();
+// Global variable to collect the cleanup functions for all lingering sorts if it can
+const TEMP_SORTS_TO_CLEAN_BEFORE_EXIT = new Map<string, () => void>();
 
 function cleanTempFiles(): void {
-    for(let cleanFn of sortFileToClean.values()) {
+    for(let cleanFn of TEMP_SORTS_TO_CLEAN_BEFORE_EXIT.values()) {
         try {
             cleanFn()
         } catch {
@@ -16,6 +17,7 @@ function cleanTempFiles(): void {
     }
 }
 
+process.on('beforeExit', cleanTempFiles);
 process.on('exit', cleanTempFiles);
 
 /**
@@ -62,17 +64,20 @@ process.on('exit', cleanTempFiles);
  *                                        `string` of the ouput file.
  * @param {Function}    compareFn       - Function that compares {@link TValue} instances to determine their sort order.
  *                                        See: {@link https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort#parameters}
+ * @param {string}      delimeter       - String delimeter to separate each input and output while serializing and deserializing wih the {@link inputMapFn}
+ *                                        and {@link outputMapFn} functions respectively.
  * @param {number}      linesPerFile    - Maximum number of lines per temporary split file. Keep default value of 100K.
  * 
  * @return {Promise<void>}              - Promise that once resolved the output sorted file has been completely 
  *                                        created and temporary files has been cleaned up.
  */
-export async function sortFile<TValue>(
+export default async function sortFile<TValue>(
     inputFile: string,
     outputFile: string,
     inputMapFn: (x: string) => TValue,
     outputMapFn: (x:TValue) => string,
     compareFn: (a:TValue, b:TValue) => number = (a, b) => a > b? 1 : -1,
+    delimeter: string = '\n',
     linesPerFile: number = 100_000): Promise<void> {
         const base = path.join(os.tmpdir(), 'large-sort');
         if(!fs.existsSync(base)) {
@@ -81,24 +86,19 @@ export async function sortFile<TValue>(
         const tempFolder = fs.mkdtempSync(path.join(base, "temp_"));
         const tempFiles = new Array<string>();
 
-        sortFileToClean.set(tempFolder, () => deleteFiles(tempFolder));
+        TEMP_SORTS_TO_CLEAN_BEFORE_EXIT.set(tempFolder, () => deleteFiles(tempFolder));
 
         try {
-            // console.debug(`[SortFile] started split of file "${inputFile}". ${new Date().toLocaleString()}`);
-            // console.time(`[SortFile] finished split of file "${inputFile}" time`);
-            await split(inputFile, tempFolder, tempFiles, inputMapFn, JSON.stringify, compareFn, linesPerFile);
-            // console.timeEnd(`[SortFile] finished split of file "${inputFile}" time`);
-
-            // console.debug(`[SortFile] started merge to file "${outputFile}". ${new Date().toLocaleString()}`);
-            // console.time(`[SortFile] finished merge to file "${outputFile}" time`);
-            await merge(tempFiles, outputFile, JSON.parse, outputMapFn, compareFn);
-            // console.timeEnd(`[SortFile] finished merge to file "${outputFile}" time`);
+            await split(inputFile, tempFolder, tempFiles, inputMapFn, JSON.stringify, compareFn, delimeter, linesPerFile, outputFile);
+            if(tempFiles.length > 0) {
+                await merge(tempFiles, outputFile, JSON.parse, outputMapFn, compareFn, delimeter);
+            }
         }
         finally {
             deleteFiles(tempFolder);
-            sortFileToClean.delete(tempFolder);
+            TEMP_SORTS_TO_CLEAN_BEFORE_EXIT.delete(tempFolder);
         }
-    }
+}
 
 function deleteFiles(tempFolder: string) {
     try {
@@ -107,16 +107,29 @@ function deleteFiles(tempFolder: string) {
     catch {}
 }
 
+
+// Memory check variable
+const ONE_GB = 1 * 1024 * 1024 * 1024;
+const CHECK_MEMORY_LINES = 1_000;
+
+function shouldFlushMemory(linesLoaded: number) {
+    return (linesLoaded % CHECK_MEMORY_LINES === 0 && process.memoryUsage().heapUsed > ONE_GB)
+}
+
 /**
  * Function to split the file into multiple files with sorted data which are populated to the {@link outputFiles} parameter.
+ *
+ * @param {string}            filePath         - File path of the
+ * @param {string}            splitPath        - The base path on where the files will be splited to.
+ * @param {Array<string>}     outputFiles      - List that will be populated with the output files.
+ * @param {Function}          inputMapFn       - Function to deserialize the input from each file line into a {@link TValue}.
+ * @param {Function}          outputMapFn      - Function serialize each of the {@link TValue} to a string.
+ * @param {Function}          compareFn        - Function used to sort the {@link TValue} for each of the files.
+ * @param {string}            splitDelimeter   - String delimeter used to file into individual string to be mapped
+ * @param {number}            linesPerFile     - How many lines process for each file.
  * 
- * @param filePath File path of the 
- * @param splitPath The base path on where the files will be splited to.
- * @param outputFiles List that will be populated with the output files.
- * @param inputMapFn Function to deserialize the input from each file line into a {@link TValue}.
- * @param outputMapFn Function serialize each of the {@link TValue} to a string.
- * @param compareFn Function used to sort the {@link TValue} for each of the files.
- * @param linesPerFile How many lines process for each file.
+ * @return {Promise<void>}                     - Promise that once resolved the output sorted file has been completely 
+ *                                               created and temporary files has been cleaned up.
  */
 async function split<TValue>(
     filePath: string,
@@ -125,38 +138,75 @@ async function split<TValue>(
     inputMapFn: (x: string) => TValue,
     outputMapFn: (x:TValue) => string,
     compareFn: (a:TValue, b:TValue) => number,
-    linesPerFile: number): Promise<void> {
-        linesPerFile = Math.floor(linesPerFile);
-        const readStream = fs.createReadStream(filePath, {highWaterMark: 1_000_000, flags: 'r'});
-        const reader = readline.createInterface({
-            input: readStream,
-            crlfDelay: Infinity
-        });
+    splitDelimeter: string,
+    linesPerFile: number,
+    outputFile: string): Promise<void> {
+        const readStream = fs.createReadStream(filePath, {highWaterMark: (1_000 * 1024), flags: 'r'});
         let linesLoaded = 0;
-        let buffer: Array<TValue> = new Array<TValue>();
-        reader.on('line', (line) => {
-            if(line.trim() != '')
-                buffer.push(inputMapFn(line));
-            linesLoaded++;
-            // if(linesLoaded % 1000000 == 0) {
-            //     console.debug(`[SortFile] ("${filePath}"): loaded ${linesLoaded.toLocaleString()} lines. ${new Date().toLocaleString()}`);
-            // }
+        let buffer: Array<TValue> = [];
+        let previousRemaingData: string = '';
 
-            // Flush buffer at the specified lines per file or when it is using more than 1GB of RAM
-            if (linesLoaded % linesPerFile == 0 || (linesLoaded % 1000 == 0 && (process.memoryUsage().heapUsed / 1024 / 1024 / 1024) > 1)) {
-                let bufferCopy = buffer;
-                buffer = new Array<TValue>();
-                flushBuffer(bufferCopy, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn);
+        let transform = new Transform({
+            transform(chunk, encoding, callback) {
+                const buff = chunk as Buffer;
+                const text = buff.toString();
+                const lines = text.split(splitDelimeter);
+
+                const end = lines.length - 1;
+                lines[0] = previousRemaingData + lines[0];
+                previousRemaingData = lines[end];
+
+                for (let i = 0; i < end; i++) {
+                    const itemStr = lines[i];
+                    try {
+                        const mapped = inputMapFn(itemStr);
+                        buffer.push(mapped);
+                        linesLoaded++;
+                    }
+                    catch(e) {
+                        console.error("[large-sort] ERROR: Mapping from input file failed. error:" + String(e));
+                    }
+                    // Check if it needs to flush the buffer becuase of the lines per file or because of memory constrain
+                    if (buffer.length === linesPerFile || shouldFlushMemory(linesLoaded)) {
+                        flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn);
+                        buffer.length = 0;
+                    }
+                }
+                callback()
+            },
+            flush(callback) {
+                if(previousRemaingData.trim() != '') {
+                    try {
+                        const mapped = inputMapFn(previousRemaingData);
+                        buffer.push(mapped);
+                    }
+                    catch(e) {
+                        console.error("[large-sort] ERROR: Mapping from input file failed. error:" + String(e));
+                    }
+                }
+                // Process the last buffer if needed
+                if(buffer.length !== 0) {
+                    if(outputFiles.length === 0) {
+                        // HACK-HACK: If the file is small enought to fit into memory write directly to the output file.
+                        flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn, outputFile);
+                        outputFiles.length = 0;
+                    }
+                    else {
+                        flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn);
+                    }
+                }
+                callback();
             }
         });
-        // Wait till it finishes reading the file
-        await new Promise<void>((resolve) => reader.once('close', resolve));
-        readStream.close()
-        // Process the last buffer if needed
-        if(buffer.length != 0) {
-            flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn);
-        }
-        // console.debug(`[SortFile] ("${filePath}"): loaded ${linesLoaded.toLocaleString()} lines. ${new Date().toLocaleString()}`);
+
+        await new Promise<void>((resolve) => {
+            readStream
+                .pipe(transform)
+                .once("finish", () => {
+                    readStream.close();
+                    resolve();
+                })
+        });
 }
 
 /**
@@ -176,23 +226,16 @@ function flushBuffer<TValue>(
     splitPath: string,
     outputFiles: Array<string>,
     outputMapFn: (x:TValue) => string,
-    compareFn: (a:TValue, b:TValue) => number) {
-        const filename = path.join(splitPath, `large-sort_${String(linesLoaded).padStart(10, '0')}.txt`);
-        // console.time(`[SortFile.Split] Sort ${buffer.length} items time`);
-        buffer.sort(compareFn);
-        // console.timeEnd(`[SortFile.Split] Sort ${buffer.length} items time`);
-        // console.time('[SortFile.Split]  Map items time')
-        let mapped = buffer.map(outputMapFn)
+    compareFn: (a:TValue, b:TValue) => number,
+    outputFile?: string) {
+        const filename = outputFile ?? path.join(splitPath, `large-sort_${String(linesLoaded).padStart(10, '0')}.txt`);
+        let sorted = buffer.sort(compareFn);
+        let mapped = sorted.map(outputMapFn);
         mapped.push(''); // Extra so it has a new line at the end.
-        // console.timeEnd('[SortFile.Split]  Map items time')
 
-        // console.time('[SortFile.Split]  String Join items time')
         let toWrite = mapped.join('\n')
-        // console.timeEnd('[SortFile.Split]  String Join items time')
         
-        // console.time('[SortFile.Split]  Write to disk time')
         fs.writeFileSync(filename, toWrite)
-        // console.timeEnd('[SortFile.Split]  Write to disk time')
         outputFiles.push(filename);
 }
 
@@ -209,7 +252,8 @@ async function merge<TValue>(
     resultFile: string,
     inputMapFn: (x: string) => TValue,
     outputMapFn: (x:TValue) => string,
-    compareFn: (a:TValue, b:TValue) => number): Promise<void> {
+    compareFn: (a:TValue, b:TValue) => number,
+    delimeter: string): Promise<void> {
         let readers = new Array<MergerInfo<TValue>>();
         let mergedItems = 0;
         // Create readers
@@ -257,7 +301,7 @@ async function merge<TValue>(
             bufferStringSize += dataStr.length;
             if(bufferStringSize > maxStringLength) {
                 writeBuffer.push('')
-                let bufferStr = writeBuffer.join('\n');
+                let bufferStr = writeBuffer.join(delimeter);
                 writeBuffer = new Array<string>();
                 bufferStringSize = 0;
                 await previousPromise;
@@ -268,9 +312,7 @@ async function merge<TValue>(
                             () => res())
                 );
             }
-            // if(mergedItems % 1000000 == 0) {
-            //     console.debug(`[SortFile] ${mergedItems.toLocaleString()} merged items.`);
-            // }
+
             var next: any;
             do {
                 next = await mergerInfo.iter.next();
@@ -294,7 +336,6 @@ async function merge<TValue>(
         if(writeBuffer.length > 0) {
             mergedItems += writeBuffer.length;
             await new Promise<void>((resolve) => resultStream.write(writeBuffer.join('\n'), () => resolve()));
-            // console.debug(`[SortFile] ${mergedItems.toLocaleString()} merged items.`);
         }
         resultStream.close();
 }

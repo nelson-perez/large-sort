@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as readline from 'readline';
 import * as path from 'path';
 import * as os from 'os';
-import { Transform } from 'stream'
+import { Transform, Readable, Writable } from 'stream'
 
 // Global variable to collect the cleanup functions for all lingering sorts if it can
 const TEMP_SORTS_TO_CLEAN_BEFORE_EXIT = new Map<string, () => void>();
@@ -15,8 +15,17 @@ function cleanTempFiles(): void {
             // Ignore errors
         }
     }
+    TEMP_SORTS_TO_CLEAN_BEFORE_EXIT.clear();
 }
 
+function deleteFiles(tempFolder: string) {
+    try {
+        fs.rmdirSync(tempFolder);
+    }
+    catch {}
+}
+
+process.on('SIGKILL', cleanTempFiles);
 process.on('beforeExit', cleanTempFiles);
 process.on('exit', cleanTempFiles);
 
@@ -71,7 +80,7 @@ process.on('exit', cleanTempFiles);
  * @return {Promise<void>}              - Promise that once resolved the output sorted file has been completely 
  *                                        created and temporary files has been cleaned up.
  */
-export default async function sortFile<TValue>(
+export async function sortFile<TValue>(
     inputFile: string,
     outputFile: string,
     inputMapFn: (x: string) => TValue,
@@ -89,10 +98,20 @@ export default async function sortFile<TValue>(
         TEMP_SORTS_TO_CLEAN_BEFORE_EXIT.set(tempFolder, () => deleteFiles(tempFolder));
 
         try {
-            await split(inputFile, tempFolder, tempFiles, inputMapFn, JSON.stringify, compareFn, delimeter, linesPerFile, outputFile);
-            if(tempFiles.length > 0) {
-                await merge(tempFiles, outputFile, JSON.parse, outputMapFn, compareFn, delimeter);
-            }
+            const inputStream = fs.createReadStream(inputFile, {highWaterMark: (1_000 * 1024), flags: 'r'});
+
+            // Wait till the stream is open
+            await new Promise<void>((r) => inputStream.once('open', r));
+            await split(inputStream, tempFolder, tempFiles, inputMapFn, JSON.stringify, compareFn, delimeter, linesPerFile);
+            inputStream.close();
+
+            const outputStream = fs.createWriteStream(outputFile, { highWaterMark: 10_000_000, encoding: "utf-8", flags: 'w'});
+
+            // Wait till the result stream is open
+            await new Promise<void>((r) => outputStream.once('open', r));
+            await merge(tempFiles, outputStream, JSON.parse, outputMapFn, compareFn, delimeter);
+            
+            outputStream.close();
         }
         finally {
             deleteFiles(tempFolder);
@@ -100,26 +119,89 @@ export default async function sortFile<TValue>(
         }
 }
 
-function deleteFiles(tempFolder: string) {
-    try {
-        fs.rmdirSync(tempFolder);
-    }
-    catch {}
-}
+/**
+ * The `sortStream()` method sorts the content from an input Readable stream and writes the results into an 
+ * output Writable stream.
+ * It's designed to handled large files that would not fit into memory by using an external merge sort algorithm.
+ * (see: {@link https://en.wikipedia.org/wiki/External_sorting})
+ * 
+ * This method parses each line of the input file into {@link TValue} instances, sorts them and finally
+ * serializes and writes these {@link TValue} instances into lines of the output file via the parameters
+ * {@link inputMapFn}, {@link compareFn} and {@link outputMapFn} funtions respectively.
+ * 
+ * 
+ * The sort order is determined by the {@link compareFn} which specifies the precedence of the {@link TValue} instances.
+ * @examples
+ * - increasing order sort compareFn: (a, b) => a > b? 1 : -1
+ * - decreasing order sort compareFn: (a, b) => a < b? 1 : -1
+ * 
+ * Note:
+ * It is recommended to don't specify the {@link linesPerFile} parameter to keep the default value of 100,000.
+ * As `sortFile()` has been tested/benchmarked for the best sorting/io performance. It can be specified only 
+ * for special scenarios to overcome `too many files` error when other options are not possible or to tune
+ * performance for larger `TValue` instances or slow file IO 
+ * 
+ * When sorting tremendously large files the following error could occur:
+ *  ---------------------------------------
+ * | `Error: EMFILE, too many open files`  |
+ *  ---------------------------------------
+ * Which occurs when there input has been splited in more than ~1,024 files and all those files are opened during
+ * the k-file merging process.
+ * To overcome this the error you'll need to increase the maximum number of concurrent open stream/files limit by
+ * using the `$ ulimit -n <max open files (default: 1024)>` command or update the `/etc/security/limit.conf` file.
+ * 
+ * If above is not possible then you could overcome it by specifying the {@link linesPerFile} parameter above 100,000
+ * which could result less split files to merge.
+ * 
+ * 
+ * @template TValue                     - Specifies type of a parsed instance to sort from the input file.
+ * 
+ * @param {Readable}    inputStream     - Input stream to read the data from.
+ * @param {Writable}    outputStream    - Writeable stream to output the data to.
+ * @param {Function}    inputMapFn      - Function that parses/deserializes an input file line `string` into a
+ *                                        {@link TValue} instance.
+ * @param {Function}    outputMapFn     - Function that serializes each {@link TValue} instance into a single line
+ *                                        `string` of the ouput file.
+ * @param {Function}    compareFn       - Function that compares {@link TValue} instances to determine their sort order.
+ *                                        See: {@link https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort#parameters}
+ * @param {string}      delimeter       - String delimeter to separate each input and output while serializing and deserializing wih the {@link inputMapFn}
+ *                                        and {@link outputMapFn} functions respectively.
+ * @param {number}      linesPerFile    - Maximum number of lines per temporary split file. Keep default value of 100K.
+ * 
+ * @return {Promise<void>}              - Promise that once resolved the output sorted file has been completely 
+ *                                        created and temporary files has been cleaned up.
+ */
+export async function sortStream<TValue>(
+    inputStream: Readable,
+    outputStream: Writable,
+    inputMapFn: (x: string) => TValue,
+    outputMapFn: (x:TValue) => string,
+    compareFn: (a:TValue, b:TValue) => number = (a, b) => a > b? 1 : -1,
+    delimeter: string = '\n',
+    linesPerFile: number = 100_000): Promise<void> {
+        const base = path.join(os.tmpdir(), 'large-sort');
+        if(!fs.existsSync(base)) {
+            fs.mkdirSync(base, {recursive: true});
+        }
+        const tempFolder = fs.mkdtempSync(path.join(base, "temp_"));
+        const tempFiles = new Array<string>();
 
+        TEMP_SORTS_TO_CLEAN_BEFORE_EXIT.set(tempFolder, () => deleteFiles(tempFolder));
 
-// Memory check variable
-const ONE_GB = 1 * 1024 * 1024 * 1024;
-const CHECK_MEMORY_LINES = 1_000;
-
-function shouldFlushMemory(linesLoaded: number) {
-    return (linesLoaded % CHECK_MEMORY_LINES === 0 && process.memoryUsage().heapUsed > ONE_GB)
+        try {
+            await split(inputStream, tempFolder, tempFiles, inputMapFn, JSON.stringify, compareFn, delimeter, linesPerFile);
+            await merge(tempFiles, outputStream, JSON.parse, outputMapFn, compareFn, delimeter);
+        }
+        finally {
+            deleteFiles(tempFolder);
+            TEMP_SORTS_TO_CLEAN_BEFORE_EXIT.delete(tempFolder);
+        }
 }
 
 /**
  * Function to split the file into multiple files with sorted data which are populated to the {@link outputFiles} parameter.
  *
- * @param {string}            filePath         - File path of the
+ * @param {Readable}          inputStream      - File path of the
  * @param {string}            splitPath        - The base path on where the files will be splited to.
  * @param {Array<string>}     outputFiles      - List that will be populated with the output files.
  * @param {Function}          inputMapFn       - Function to deserialize the input from each file line into a {@link TValue}.
@@ -132,21 +214,38 @@ function shouldFlushMemory(linesLoaded: number) {
  *                                               created and temporary files has been cleaned up.
  */
 async function split<TValue>(
-    filePath: string,
+    inputStream: Readable,
     splitPath: string,
     outputFiles: Array<string>,
     inputMapFn: (x: string) => TValue,
     outputMapFn: (x:TValue) => string,
     compareFn: (a:TValue, b:TValue) => number,
     splitDelimeter: string,
-    linesPerFile: number,
-    outputFile: string): Promise<void> {
-        const readStream = fs.createReadStream(filePath, {highWaterMark: (1_000 * 1024), flags: 'r'});
+    linesPerFile: number): Promise<void> {
         let linesLoaded = 0;
         let buffer: Array<TValue> = [];
         let previousRemaingData: string = '';
 
-        let transform = new Transform({
+        // Memory check variable
+        const MAX_GB = 1;
+        const MAX_BYTES = MAX_GB * 1024 * 1024 * 1024;
+        const baseMemoryUsage = process.memoryUsage();
+        const bytesToMaxBytes = MAX_BYTES - baseMemoryUsage.heapUsed;
+        var current = baseMemoryUsage;
+        var nextMemoryCheck = Math.min(1_000, linesPerFile);
+
+        function shouldFlushMemory(bufferSize: number) {
+            if(bufferSize !== nextMemoryCheck) return false;
+
+            current = process.memoryUsage();
+            const heapDiff = current.heapUsed - baseMemoryUsage.heapUsed;
+            const avgBytesPerItem = heapDiff / bufferSize;                
+            const maxItems = bytesToMaxBytes / avgBytesPerItem;
+            nextMemoryCheck = Math.floor(maxItems * .50);
+            return current.heapUsed > MAX_BYTES;
+        }
+
+        const transform = new Transform({
             transform(chunk, encoding, callback) {
                 const buff = chunk as Buffer;
                 const text = buff.toString();
@@ -155,7 +254,6 @@ async function split<TValue>(
                 const end = lines.length - 1;
                 lines[0] = previousRemaingData + lines[0];
                 previousRemaingData = lines[end];
-
                 for (let i = 0; i < end; i++) {
                     const itemStr = lines[i];
                     try {
@@ -167,12 +265,12 @@ async function split<TValue>(
                         console.error("[large-sort] ERROR: Mapping from input file failed. error:" + String(e));
                     }
                     // Check if it needs to flush the buffer becuase of the lines per file or because of memory constrain
-                    if (buffer.length === linesPerFile || shouldFlushMemory(linesLoaded)) {
+                    if (buffer.length === linesPerFile || shouldFlushMemory(buffer.length)) {
                         flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn);
                         buffer.length = 0;
                     }
                 }
-                callback()
+                callback();
             },
             flush(callback) {
                 if(previousRemaingData.trim() != '') {
@@ -186,24 +284,16 @@ async function split<TValue>(
                 }
                 // Process the last buffer if needed
                 if(buffer.length !== 0) {
-                    if(outputFiles.length === 0) {
-                        // HACK-HACK: If the file is small enought to fit into memory write directly to the output file.
-                        flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn, outputFile);
-                        outputFiles.length = 0;
-                    }
-                    else {
-                        flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn);
-                    }
+                    flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn);
                 }
                 callback();
             }
         });
 
         await new Promise<void>((resolve) => {
-            readStream
+            inputStream
                 .pipe(transform)
                 .once("finish", () => {
-                    readStream.close();
                     resolve();
                 })
         });
@@ -226,17 +316,15 @@ function flushBuffer<TValue>(
     splitPath: string,
     outputFiles: Array<string>,
     outputMapFn: (x:TValue) => string,
-    compareFn: (a:TValue, b:TValue) => number,
-    outputFile?: string) {
-        const filename = outputFile ?? path.join(splitPath, `large-sort_${String(linesLoaded).padStart(10, '0')}.txt`);
+    compareFn: (a:TValue, b:TValue) => number) {
         let sorted = buffer.sort(compareFn);
         let mapped = sorted.map(outputMapFn);
         mapped.push(''); // Extra so it has a new line at the end.
 
         let toWrite = mapped.join('\n')
-        
-        fs.writeFileSync(filename, toWrite)
+        const filename = path.join(splitPath, `large-sort_${String(linesLoaded).padStart(10, '0')}.txt`);
         outputFiles.push(filename);
+        return new Promise((resolve) => fs.writeFile(filename, toWrite, resolve));
 }
 
 type MergerInfo<T> = {
@@ -249,13 +337,15 @@ type MergerInfo<T> = {
 
 async function merge<TValue>(
     files: Array<string>,
-    resultFile: string,
+    outputStream: Writable,
     inputMapFn: (x: string) => TValue,
     outputMapFn: (x:TValue) => string,
     compareFn: (a:TValue, b:TValue) => number,
-    delimeter: string): Promise<void> {
+    mergeDelimeter: string): Promise<void> {
+        // Nothing to merge exit right away.
+        if(files.length === 0) return;
+
         let readers = new Array<MergerInfo<TValue>>();
-        let mergedItems = 0;
         // Create readers
         for (let i = 0; i < files.length; i++) {
             const f = files[i];
@@ -285,23 +375,20 @@ async function merge<TValue>(
         let mergerInfoReverseCompareFn = (a:MergerInfo<TValue>, b: MergerInfo<TValue>) => compareFn(b.data, a.data)
         readers.sort(mergerInfoReverseCompareFn);
         
-        var resultStream = fs.createWriteStream(resultFile, {highWaterMark: 10_000_000, flags: 'w'});
+        var resultStream = outputStream;
         let writeBuffer = new Array<string>();
         let previousPromise: Promise<void> = Promise.resolve();
         let bufferStringSize = 0;
         const maxStringLength = Math.pow(2, 23) * .90; // 90% of the node js string max length
-        // Wait till the result stream is open
-        await new Promise<void>((r) => resultStream.once('open', () => r()));
         while(readers.length > 0) {
             const mergerInfo: MergerInfo<TValue> = readers[readers.length - 1];
             readers.length--;
-            mergedItems++;
             let dataStr = outputMapFn(mergerInfo.data);
             writeBuffer.push(dataStr);
             bufferStringSize += dataStr.length;
             if(bufferStringSize > maxStringLength) {
                 writeBuffer.push('')
-                let bufferStr = writeBuffer.join(delimeter);
+                let bufferStr = writeBuffer.join(mergeDelimeter);
                 writeBuffer = new Array<string>();
                 bufferStringSize = 0;
                 await previousPromise;
@@ -334,10 +421,8 @@ async function merge<TValue>(
 
         // Flush the last buffer
         if(writeBuffer.length > 0) {
-            mergedItems += writeBuffer.length;
             await new Promise<void>((resolve) => resultStream.write(writeBuffer.join('\n'), () => resolve()));
         }
-        resultStream.close();
 }
 
 function binarySearch<T>(
@@ -347,12 +432,12 @@ function binarySearch<T>(
         let start = 0;
         let end = array.length;
         while(start != end - 1) {
-            let mid = Math.floor((start + end) / 2);
-            let pivot = array[mid];
+            const mid = Math.floor((start + end) / 2);
+            const pivot = array[mid];
             if(mid == 0) {
                 return mid;
             }
-            let beforePivot = array[mid - 1];
+            const beforePivot = array[mid - 1];
             if(compareFn(pivot, target) >= 0 && compareFn(beforePivot, target) < 0)
             {
                 return mid;

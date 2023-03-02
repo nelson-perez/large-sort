@@ -25,6 +25,7 @@ function deleteFiles(tempFolder: string) {
     catch {}
 }
 
+// Doing a best effort to clean any lingering split files
 process.on('SIGKILL', cleanTempFiles);
 process.on('beforeExit', cleanTempFiles);
 process.on('exit', cleanTempFiles);
@@ -76,6 +77,7 @@ process.on('exit', cleanTempFiles);
  * @param {string}      delimeter       - String delimeter to separate each input and output while serializing and deserializing wih the {@link inputMapFn}
  *                                        and {@link outputMapFn} functions respectively.
  * @param {number}      linesPerFile    - Maximum number of lines per temporary split file. Keep default value of 100K.
+ * 
  * 
  * @return {Promise<void>}              - Promise that once resolved the output sorted file has been completely 
  *                                        created and temporary files has been cleaned up.

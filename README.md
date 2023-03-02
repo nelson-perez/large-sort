@@ -4,8 +4,8 @@
 
 > [![npm large-sort](img/npm_large-sort.png)](https://www.npmjs.com/package/large-sort)
 
-## Overview
-Fast sorting library that parses, sorts and serializes the content of large files using [external merge sort](https://en.wikipedia.org/wiki/External_sorting) for NodeJS. Currently there is one function that is called `sortFile()` to sort the file content of large files.
+# Overview
+Fast sorting library that parses, sorts and serializes the content of large files using [external merge sort](https://en.wikipedia.org/wiki/External_sorting) for NodeJS.Currently there are two functions `sortFile()` to sort the file content of large files and `sortStream()` to generically sort `Stream`.
 
 ###### Additional planned features:
 - [DONE] Enable ***custom delimeters*** for the data via `string` or `regex`.
@@ -14,20 +14,20 @@ Fast sorting library that parses, sorts and serializes the content of large file
   - This is an area of exploration to see if there could be performance advantages utilizing `number` and `string` specific sorting algorithms instead of relying on the comparer.
 
 
-## Installation
-Install to your NodeJS project using [npm](https://npmjs.org).
+# Installation
+Install to your NodeJS project using [npm](https://npmjs.org/large-sort).
 ```bash
-npm install large-sort
+npm install large-sort --save
 ```
 
-## API
-### `sortFile()`
+# API
+## `sortFile()`
 This method provides the necesary functionality that allows to parse line by line the input file deserializing from a `string` into an object or primitive that can be **compared**, **sorted** and **serialized** back into an output file. It sorts the data using an [external merge sort](https://en.wikipedia.org/wiki/External_sorting) algorithm which splits the file into multiple sorted temporary *k-files* and then merges each of the splited *k-files* into a single output file.
 
 The size of the splitted files is controlled by the maximun number of lines per file (`linesPerFile`) parameter or if the memory reaches more than ***1GB*** with a minumum of 1,000 lines whichever happens first.
 
 
-#### Parameters of `sortFile()`
+### Parameters of `sortFile()`
 |Name               | Description|
 |         -         |   -   |
 |***TValue***       | Type of the parsed value from the input file|
@@ -39,7 +39,7 @@ The size of the splitted files is controlled by the maximun number of lines per 
 |__linesPerFile__   | Max number of lines processed for each file split. _`It's recommended to keep the default value for performance.`_|
 
 
-#### Function definition of `sortFile()`
+### Function definition of `sortFile()`
 ```typescript
 /**
  * The `sortFile()` method sorts the content of an input file and writes the results into an output file.
@@ -91,6 +91,7 @@ The size of the splitted files is controlled by the maximun number of lines per 
  *                                        See: {@link https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort#parameters}
  * @param {number}      linesPerFile    - Maximum number of lines per temporary split file. Keep default value of 100K.
  * 
+ * 
  * @return {Promise<void>}              - Promise that once resolved the output sorted file has been completely 
  *                                        created and temporary files has been cleaned up.
  */
@@ -103,21 +104,18 @@ export async function sortFile<TValue>(
     linesPerFile: number = 100_000): Promise<void> 
 ```
 
-## Usage examples
+### Usage examples
 Here are examples showing the scenarios where this would be useful.
 
 #### Sorting numbers
 Here is an example that explain each of the parameters and how to use it to sort a file with `Numbers` and outputs the numbers as strings.
 
 ```typescript
+// Function that tansforms a line from input file into a number to use for comparison.
+const inputMapFunction = (input: string) => Number(input);
 
- // Function that tansforms a line from input file into a number to use for comparison.
- let inputMapFunction = input: string => Number(input);
-
-
- // Function that tansform a parsed number back into string as a line for the output file.
- let outputMapFuncton = output: number => output.toString();
-
+// Function that tansform a parsed number back into string as a line for the output file.
+const outputMapFuncton = (output: number) => output.toString();
 
  // Function that compares two numbers to define their sort order.
  let compareFunction = (a: number, b: number) => a > b? 1 : -1;
@@ -134,7 +132,7 @@ Here is an example that explain each of the parameters and how to use it to sort
  ```
 
 
- #### Sort CSV file by the second column
+#### Sort CSV file by the second column
  This example shows how to sort a csv file based on the value of the second column by parsing the csv into an array, sorting the array based on the second column and writting the array back into the csv format.
 
  ```typescript
@@ -223,4 +221,127 @@ await sortFile<{sortBy: string, array: string[]}>(
     outputJSON,                             // outputMapFn  - maps the object into a csv row line to ouput
     (a, b) => a.sortBy > b.sortBy? 1 : -1); // compareFn    - compares using `sortBy` field to sort in ascending order
 
+ ```
+
+
+## `sortStream()`
+This method provides the necesary functionality that allows read and parse data from a stream given the provided delimeter. It deserializes from the input `string` into an object or primitive that can be **compared**, **sorted** and **serialized** back into to write into the output stream. It sorts the data using an [external merge sort](https://en.wikipedia.org/wiki/External_sorting) algorithm which splits the file into multiple sorted temporary *k-files* and then merges each of the splited *k-files* into the output stream.
+
+The size of the splitted files is controlled by the maximun number of lines per file (`linesPerFile`) parameter or if the memory reaches more than ***1GB*** with a minumum of 1,000 lines whichever happens first.
+
+> Note: It is recommended to use the `sortFile()` method when sorting files as it is quite efficient and tunned to perform at it's best.
+
+#### Parameters of `sortFile()`
+|Name               | Description|
+|         -         |   -   |
+|***TValue***       | Type of the parsed value from the input file|
+|__inputFile__      | File path of the file that contains data delimited by a _newline_ `"\n"` to be sorted.|
+|__outputFile__     | File path of the output sorted data delimited by a _newline_ `"\n"`.|
+|__inputMapFn__     | Function that maps/parses a `string` from a single line of the input file into a **TValue** type.|
+|__outputMapFn__    | Function maps/serializes each **TValue** into a single line `string` for the output file.|
+|__compareFn__      | Comparer function of **TValue** types to define the sorting order. _example_: `(a, b) => a > b? 1 : -1`|
+|__linesPerFile__   | Max number of lines processed for each file split. _`It's recommended to keep the default value for performance.`_|
+
+
+#### Function definition of `sortFile()`
+```typescript
+/**
+ * The `sortStream()` method sorts the content from an input Readable stream and writes the results into an 
+ * output Writable stream.
+ * It's designed to handled large files that would not fit into memory by using an external merge sort algorithm.
+ * (see: {@link https://en.wikipedia.org/wiki/External_sorting})
+ * 
+ * This method parses each line of the input file into {@link TValue} instances, sorts them and finally
+ * serializes and writes these {@link TValue} instances into lines of the output file via the parameters
+ * {@link inputMapFn}, {@link compareFn} and {@link outputMapFn} funtions respectively.
+ * 
+ * 
+ * The sort order is determined by the {@link compareFn} which specifies the precedence of the {@link TValue} instances.
+ * @examples
+ * - increasing order sort compareFn: (a, b) => a > b? 1 : -1
+ * - decreasing order sort compareFn: (a, b) => a < b? 1 : -1
+ * 
+ * Note:
+ * It is recommended to don't specify the {@link linesPerFile} parameter to keep the default value of 100,000.
+ * As `sortFile()` has been tested/benchmarked for the best sorting/io performance. It can be specified only 
+ * for special scenarios to overcome `too many files` error when other options are not possible or to tune
+ * performance for larger `TValue` instances or slow file IO 
+ * 
+ * When sorting tremendously large files the following error could occur:
+ *  ---------------------------------------
+ * | `Error: EMFILE, too many open files`  |
+ *  ---------------------------------------
+ * Which occurs when there input has been splited in more than ~1,024 files and all those files are opened during
+ * the k-file merging process.
+ * To overcome this the error you'll need to increase the maximum number of concurrent open stream/files limit by
+ * using the `$ ulimit -n <max open files (default: 1024)>` command or update the `/etc/security/limit.conf` file.
+ * 
+ * If above is not possible then you could overcome it by specifying the {@link linesPerFile} parameter above 100,000
+ * which could result less split files to merge.
+ * 
+ * 
+ * @template TValue                     - Specifies type of a parsed instance to sort from the input file.
+ * 
+ * @param {Readable}    inputStream     - Input stream to read the data from.
+ * @param {Writable}    outputStream    - Writeable stream to output the data to.
+ * @param {Function}    inputMapFn      - Function that parses/deserializes an input file line `string` into a
+ *                                        {@link TValue} instance.
+ * @param {Function}    outputMapFn     - Function that serializes each {@link TValue} instance into a single line
+ *                                        `string` of the ouput file.
+ * @param {Function}    compareFn       - Function that compares {@link TValue} instances to determine their sort order.
+ *                                        See: {@link https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort#parameters}
+ * @param {string}      delimeter       - String delimeter to separate each input and output while serializing and deserializing wih the {@link inputMapFn}
+ *                                        and {@link outputMapFn} functions respectively.
+ * @param {number}      linesPerFile    - Maximum number of lines per temporary split file. Keep default value of 100K.
+ * 
+ * 
+ * @return {Promise<void>}              - Promise that once resolved the output sorted file has been completely 
+ *                                        created and temporary files has been cleaned up.
+ */
+export async function sortStream<TValue>(
+    inputStream: Readable,
+    outputStream: Writable,
+    inputMapFn: (x: string) => TValue,
+    outputMapFn: (x:TValue) => string,
+    compareFn: (a:TValue, b:TValue) => number = (a, b) => a > b? 1 : -1,
+    delimeter: string = '\n',
+    linesPerFile: number = 100_000): Promise<void>
+```
+
+## Usage
+Similar to the `sortFile()` method all the capabilities remain the same with the nuance of you'll be using Streams instead of files. But keep in mind if you want to do file to file sorting it's best to use the `sortFile()` function instead of creating the streams yourself.
+
+Bellow are a few examples showing the scenarios where this would be useful for.
+
+#### Sorting numbers file and ooutput to terminal
+Here is an example that explain each of the parameters and how to use it to sort a file with `Numbers` and outputs the numbers as strings to the terminal.
+
+```typescript
+
+// Function that tansforms a line from input file into a number to use for comparison.
+const inputMapFunction = (input: string) => Number(input);
+
+// Function that tansform a parsed number back into string as a line for the output file.
+const outputMapFuncton = (output: number) => output.toString();
+
+ // Function that compares two numbers to define their sort order.
+ const compareFunction = (a: number, b: number) => a > b? 1 : -1;
+
+
+// ReadStream or Readable from file
+const inputStream = fs.createReadStream('input_file.txt', {flags: 'r'});
+
+// Output stream to the terminal
+const outputStrea = process.stdout;
+
+// Wait till the stream open
+await new Promise<void>((resolve) => inputStream.once('open', resolve))
+
+// Sort the lines of the inputStream (file "input_file.txt") as numbers and outputs the results to the outputStream (terminal sdtout)
+await sortStream<number>(
+        inputStream,
+        outputStream,
+        inputMapFunction,
+        outputMapFuncton,
+        compareFunction); 
  ```

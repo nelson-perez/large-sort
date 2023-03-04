@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as readline from 'readline';
 import * as path from 'path';
 import * as os from 'os';
-import { Transform, Readable, Writable } from 'stream'
+import { Transform, Readable, Writable, pipeline } from 'stream'
 
 // Global variable to collect the cleanup functions for all lingering sorts if it can
 const TEMP_SORTS_TO_CLEAN_BEFORE_EXIT = new Map<string, () => void>();
@@ -292,14 +292,9 @@ async function split<TValue>(
             }
         });
 
-        await new Promise<void>((resolve) => {
-            inputStream
-                .pipe(transform)
-                .once("finish", () => {
-                    resolve();
-                })
-        });
-}
+        await new Promise<void>((resolve, reject) => {
+            pipeline(inputStream, transform, (err) => err ? reject(err) : resolve());
+        });}
 
 /**
  * Helper function to process the buffer during the file split.

@@ -12,6 +12,7 @@ Fast sorting library that parses, sorts and serializes the content of large file
 - [DONE] Load the input from a `ReadStream` and output the sorted data into a `WriteStream` instead of file to file.
 - *[**exploring**]* - Create API to build the sort scenario based on a property/field name or an `extract property function` instead of a comparer function.
   - This is an area of exploration to see if there could be performance advantages utilizing `number` and `string` specific sorting algorithms instead of relying on the comparer.
+- *[**exploring**]* - I've been experimenting a bit using `thread_workers` to help sort during the split process and although I did saw great performance, it comes with the disadvange passing the comparer as serializable JSON which is not possible to pass a function so it will require some refactoring like I mentioned above where instead of providing the compareFn you need provide a property/field you would like to sort with. I think I'll borrow some inspiration from ![fast-sort](https://www.npmjs.com/package/fast-sort) which uses that similar builder approach to build the sorter before doing the actual sort but without the lambda capability when using `thread_workers`. I'll probably switch the logic depending if the caller provides a property or provides a function to either compare or resolve a property.
 
 
 # Installation
@@ -309,15 +310,14 @@ export async function sortStream<TValue>(
 ```
 
 ## Usage
-Similar to the `sortFile()` method all the capabilities remain the same with the nuance of you'll be using Streams instead of files. But keep in mind if you want to do file to file sorting it's best to use the `sortFile()` function instead of creating the streams yourself.
+Similar to the `sortFile()` mtehod `sortStream()` offers all the same capabilities remain the same with the nuance of you'll be using Streams instead of files. But keep in mind if you want to do file to file sorting it's best to use the `sortFile()` function instead of creating the streams yourself.
 
-Bellow are a few examples showing the scenarios where this would be useful for.
+Bellow is am example showing how to use it.
 
-#### Sorting numbers file and ooutput to terminal
+#### Sorting numbers file and output to terminal
 Here is an example that explain each of the parameters and how to use it to sort a file with `Numbers` and outputs the numbers as strings to the terminal.
 
 ```typescript
-
 // Function that tansforms a line from input file into a number to use for comparison.
 const inputMapFunction = (input: string) => Number(input);
 
@@ -327,14 +327,13 @@ const outputMapFuncton = (output: number) => output.toString();
  // Function that compares two numbers to define their sort order.
  const compareFunction = (a: number, b: number) => a > b? 1 : -1;
 
-
 // ReadStream or Readable from file
 const inputStream = fs.createReadStream('input_file.txt', {flags: 'r'});
 
 // Output stream to the terminal
-const outputStrea = process.stdout;
+const outputStream = process.stdout;
 
-// Wait till the stream open
+// Wait till the input stream opens
 await new Promise<void>((resolve) => inputStream.once('open', resolve))
 
 // Sort the lines of the inputStream (file "input_file.txt") as numbers and outputs the results to the outputStream (terminal sdtout)
@@ -343,5 +342,5 @@ await sortStream<number>(
         outputStream,
         inputMapFunction,
         outputMapFuncton,
-        compareFunction); 
+        compareFunction);
  ```

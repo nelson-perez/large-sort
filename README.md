@@ -7,12 +7,12 @@
 # Overview
 Fast sorting library that parses, sorts and serializes the content of large files using [external merge sort](https://en.wikipedia.org/wiki/External_sorting) for NodeJS.Currently there are two functions `sortFile()` to sort the file content of large files and `sortStream()` to generically sort `Stream`.
 
-###### Additional planned features:
+### Additional planned features:
 - [DONE] Enable ***custom delimeters*** for the data via `string` or `regex`.
 - [DONE] Load the input from a `ReadStream` and output the sorted data into a `WriteStream` instead of file to file.
 - *[**exploring**]* - Create API to build the sort scenario based on a property/field name or an `extract property function` instead of a comparer function.
   - This is an area of exploration to see if there could be performance advantages utilizing `number` and `string` specific sorting algorithms instead of relying on the comparer.
-- *[**exploring**]* - I've been experimenting a bit using `thread_workers` to help sort during the split process and although I did saw great performance, it comes with the disadvange passing the comparer as serializable JSON which is not possible to pass a function so it will require some refactoring like I mentioned above where instead of providing the compareFn you need provide a property/field you would like to sort with. I think I'll borrow some inspiration from ![fast-sort](https://www.npmjs.com/package/fast-sort) which uses that similar builder approach to build the sorter before doing the actual sort but without the lambda capability when using `thread_workers`. I'll probably switch the logic depending if the caller provides a property or provides a function to either compare or resolve a property.
+- *[**exploring**]* - I've been experimenting a bit using `thread_workers` to help sort during the split process and although I did saw great performance, it comes with the disadvange passing the comparer as serializable JSON which is not possible to pass a function so it will require some refactoring like I mentioned above where instead of providing the compareFn you need provide a property/field you would like to sort with. I think I'll borrow some inspiration from [fast-sort](https://www.npmjs.com/package/fast-sort) which uses that similar builder approach to build the sorter before doing the actual sort but without the lambda capability when using `thread_workers`. I'll probably switch the logic depending if the caller provides a property or provides a function to either compare or resolve a property.
 
 
 # Installation

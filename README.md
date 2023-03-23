@@ -3,8 +3,8 @@
 [![Node.js CI](https://github.com/nelson-perez/large-sort/actions/workflows/node.js.yml/badge.svg)](https://github.com/nelson-perez/large-sort/actions/workflows/node.js.yml)
 [![Start](https://img.shields.io/github/stars/nelson-perez/large-sort?style=flat-square)](https://github.com/nelson-perez/large-sort/stargazers)
 [![Total Downloads](https://img.shields.io/npm/dt/large-sort.svg)](https://www.npmjs.com/package/large-sort)
-[![Open Source Love](https://badges.frapsoft.com/os/v1/open-source.svg?v=103)](https://opensource.org/)
 [![MIT Licence](https://badges.frapsoft.com/os/mit/mit.svg?v=103)](https://opensource.org/licenses/mit-license.php)
+[![Open Source Love](https://badges.frapsoft.com/os/v1/open-source.svg?v=103)](https://opensource.org/)
 <!--- [![large-sort](/advisor/npm-package/large-sort/badge.svg)](/advisor/npm-package/large-sort) -->
 
 [![NPM Package](https://nodei.co/npm/large-sort.png)](https://www.npmjs.com/package/large-sort)

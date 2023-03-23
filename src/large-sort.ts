@@ -85,10 +85,11 @@ process.on('exit', cleanTempFiles);
 export async function sortFile<TValue>(
     inputFile: string,
     outputFile: string,
-    inputMapFn: (x: string) => TValue,
-    outputMapFn: (x:TValue) => string,
+    inputMapFn: (x: string) => TValue = x => x as TValue,
+    outputMapFn: (x:TValue) => string = x => String(x),
     compareFn: (a:TValue, b:TValue) => number = (a, b) => a > b? 1 : -1,
-    delimeter: string = '\n',
+    inputDelimeter: string = '\n',
+    outputDelimeter: string = '\n',
     linesPerFile: number = 100_000): Promise<void> {
         const base = path.join(os.tmpdir(), 'large-sort');
         if(!fs.existsSync(base)) {
@@ -104,14 +105,14 @@ export async function sortFile<TValue>(
 
             // Wait till the stream is open
             await new Promise<void>((r) => inputStream.once('open', r));
-            await split(inputStream, tempFolder, tempFiles, inputMapFn, JSON.stringify, compareFn, delimeter, linesPerFile);
+            await split(inputStream, tempFolder, tempFiles, inputMapFn, JSON.stringify, compareFn, inputDelimeter, linesPerFile);
             inputStream.close();
 
             const outputStream = fs.createWriteStream(outputFile, { highWaterMark: 10_000_000, encoding: "utf-8", flags: 'w'});
 
             // Wait till the result stream is open
             await new Promise<void>((r) => outputStream.once('open', r));
-            await merge(tempFiles, outputStream, JSON.parse, outputMapFn, compareFn, delimeter);
+            await mergeSortedFiles(tempFiles, outputStream, JSON.parse, outputMapFn, compareFn, outputDelimeter);
             
             outputStream.close();
         }
@@ -176,8 +177,8 @@ export async function sortFile<TValue>(
 export async function sortStream<TValue>(
     inputStream: Readable,
     outputStream: Writable,
-    inputMapFn: (x: string) => TValue,
-    outputMapFn: (x:TValue) => string,
+    inputMapFn: (x: string) => TValue = x => x as TValue,
+    outputMapFn: (x:TValue) => string = x => String(x),
     compareFn: (a:TValue, b:TValue) => number = (a, b) => a > b? 1 : -1,
     delimeter: string = '\n',
     linesPerFile: number = 100_000): Promise<void> {
@@ -223,78 +224,80 @@ async function split<TValue>(
     outputMapFn: (x:TValue) => string,
     compareFn: (a:TValue, b:TValue) => number,
     splitDelimeter: string,
-    linesPerFile: number): Promise<void> {
-        let linesLoaded = 0;
-        let buffer: Array<TValue> = [];
-        let previousRemaingData: string = '';
+    linesPerFile: number
+): Promise<void> {
+    let linesLoaded = 0;
+    let buffer: Array<TValue> = [];
+    let previousRemaingData: string = '';
 
-        // Memory check variable
-        const MAX_GB = 1;
-        const MAX_BYTES = MAX_GB * 1024 * 1024 * 1024;
-        const baseMemoryUsage = process.memoryUsage();
-        const bytesToMaxBytes = MAX_BYTES - baseMemoryUsage.heapUsed;
-        var current = baseMemoryUsage;
-        var nextMemoryCheck = Math.min(1_000, linesPerFile);
+    // Memory check variable
+    const MAX_GB = 1;
+    const MAX_BYTES = MAX_GB * 1024 * 1024 * 1024;
+    const baseMemoryUsage = process.memoryUsage();
+    const bytesToMaxBytes = MAX_BYTES - baseMemoryUsage.heapUsed;
+    var current = baseMemoryUsage;
+    var nextMemoryCheck = Math.min(1_000, linesPerFile);
 
-        function shouldFlushMemory(bufferSize: number) {
-            if(bufferSize !== nextMemoryCheck) return false;
+    function shouldFlushMemory(bufferSize: number) {
+        if(bufferSize !== nextMemoryCheck) return false;
 
-            current = process.memoryUsage();
-            const heapDiff = current.heapUsed - baseMemoryUsage.heapUsed;
-            const avgBytesPerItem = heapDiff / bufferSize;                
-            const maxItems = bytesToMaxBytes / avgBytesPerItem;
-            nextMemoryCheck = Math.floor(maxItems * .50);
-            return current.heapUsed > MAX_BYTES;
-        }
+        current = process.memoryUsage();
+        const heapDiff = current.heapUsed - baseMemoryUsage.heapUsed;
+        const avgBytesPerItem = heapDiff / bufferSize;                
+        const maxItems = bytesToMaxBytes / avgBytesPerItem;
+        nextMemoryCheck = Math.floor(maxItems * .50);
+        return current.heapUsed > MAX_BYTES;
+    }
 
-        const transform = new Transform({
-            transform(chunk, encoding, callback) {
-                const buff = chunk as Buffer;
-                const text = buff.toString();
-                const lines = text.split(splitDelimeter);
+    const transform = new Transform({
+        transform(chunk, encoding, callback) {
+            const buff = chunk as Buffer;
+            const text = buff.toString();
+            const lines = text.split(splitDelimeter);
 
-                const end = lines.length - 1;
-                lines[0] = previousRemaingData + lines[0];
-                previousRemaingData = lines[end];
-                for (let i = 0; i < end; i++) {
-                    const itemStr = lines[i];
-                    try {
-                        const mapped = inputMapFn(itemStr);
-                        buffer.push(mapped);
-                        linesLoaded++;
-                    }
-                    catch(e) {
-                        console.error("[large-sort] ERROR: Mapping from input file failed. error:" + String(e));
-                    }
-                    // Check if it needs to flush the buffer becuase of the lines per file or because of memory constrain
-                    if (buffer.length === linesPerFile || shouldFlushMemory(buffer.length)) {
-                        flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn);
-                        buffer.length = 0;
-                    }
+            const end = lines.length - 1;
+            lines[0] = previousRemaingData + lines[0];
+            previousRemaingData = lines[end];
+            for (let i = 0; i < end; i++) {
+                const itemStr = lines[i];
+                try {
+                    const mapped = inputMapFn(itemStr);
+                    buffer.push(mapped);
+                    linesLoaded++;
                 }
-                callback();
-            },
-            flush(callback) {
-                if(previousRemaingData.trim() != '') {
-                    try {
-                        const mapped = inputMapFn(previousRemaingData);
-                        buffer.push(mapped);
-                    }
-                    catch(e) {
-                        console.error("[large-sort] ERROR: Mapping from input file failed. error:" + String(e));
-                    }
+                catch(e) {
+                    console.error("[large-sort] ERROR: Mapping from input file failed. error:" + String(e));
                 }
-                // Process the last buffer if needed
-                if(buffer.length !== 0) {
+                // Check if it needs to flush the buffer becuase of the lines per file or because of memory constrain
+                if (buffer.length === linesPerFile || shouldFlushMemory(buffer.length)) {
                     flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn);
+                    buffer.length = 0;
                 }
-                callback();
             }
-        });
+            callback();
+        },
+        flush(callback) {
+            if(previousRemaingData.trim() != '') {
+                try {
+                    const mapped = inputMapFn(previousRemaingData);
+                    buffer.push(mapped);
+                }
+                catch(e) {
+                    console.error("[large-sort] ERROR: Mapping from input file failed. error:" + String(e));
+                }
+            }
+            // Process the last buffer if needed
+            if(buffer.length !== 0) {
+                flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn);
+            }
+            callback();
+        }
+    });
 
-        await new Promise<void>((resolve, reject) => {
-            pipeline(inputStream, transform, (err) => err ? reject(err) : resolve());
-        });}
+    await new Promise<void>((resolve, reject) => {
+        pipeline(inputStream, transform, (err) => err ? reject(err) : resolve());
+    });
+}
 
 /**
  * Helper function to process the buffer during the file split.
@@ -329,97 +332,159 @@ type MergerInfo<T> = {
     done: boolean,
     iter: AsyncIterableIterator<string>,
     reader: readline.Interface,
-    readStream: fs.ReadStream
+    readStream: Readable
 }
 
-async function merge<TValue>(
-    files: Array<string>,
+/**
+ * Function to split the file into multiple files with sorted data which are populated to the {@link outputFiles}
+ * parameter.
+ *
+ * @param {Readable[] | string[]}   inputs          - File path of the
+ * @param {string}                  splitPath       - The base path on where the files will be splited to.
+ * @param {Array<string>}           outputFiles     - List that will be populated with the output files.
+ * @param {Function}                inputMapFn      - Function to deserialize the input from each file line
+ *                                                     into a {@link TValue}.
+ * @param {Function}                outputMapFn     - Function serialize each of the {@link TValue} to a
+ *                                                    string.
+ * @param {Function}                compareFn       - Function used to sort the {@link TValue} for each of
+ *                                                    the files.
+ * @param {string}                  splitDelimeter  - String delimeter used to file into individual string
+ *                                                    to be mapped.
+ * @param {number}                  linesPerFile    - How many lines process for each file.
+ * 
+ * @return {Promise<void>}                          - Promise that once resolved the output sorted file has 
+ *                                                    been completely created and temporary files has been
+ *                                                    cleaned up.
+ */
+export async function merge<TValue>(
+    inputs: Readable[] | string[],
+    outputStream: Writable,
+    inputMapFn: (x: string) => TValue = x => x as TValue,
+    outputMapFn: (x:TValue) => string = x => String(x),
+    compareFn: (a:TValue, b:TValue) => number = (a, b) => a > b? 1 : -1,
+    outputDelimeter: string = '\n'
+): Promise<void> {
+    if(!inputs || inputs.length === 0) return;
+    if(inputs[0] instanceof Readable) {
+        const streams = inputs as Readable[];
+        await mergeSortedStreams<TValue>(streams, outputStream, inputMapFn, outputMapFn, compareFn, outputDelimeter);
+    } else {
+        const files = inputs as string[];
+        await mergeSortedFiles<TValue>(files, outputStream, inputMapFn, outputMapFn, compareFn, outputDelimeter);
+    }
+}
+
+export async function mergeSortedFiles<TValue>(
+    files: string[],
     outputStream: Writable,
     inputMapFn: (x: string) => TValue,
     outputMapFn: (x:TValue) => string,
     compareFn: (a:TValue, b:TValue) => number,
-    mergeDelimeter: string): Promise<void> {
-        // Nothing to merge exit right away.
-        if(files.length === 0) return;
+    outputDelimeter: string
+): Promise<void> {
+    if(files.length === 0) return;
+    const streams: fs.ReadStream[] = []
+    for(let i = 0; i < files.length;i++) {
+        const f = files[i];
+        const stream = fs.createReadStream(f, { highWaterMark: 100_000, flags: 'r'});
+        streams.push(stream);
+    }
+    try {
+        await mergeSortedStreams<TValue>(streams, outputStream, inputMapFn, outputMapFn, compareFn, outputDelimeter);
+    } finally {
+        for(let i = 0; i < streams.length; i++) {
+            const stream = streams[i];
+            stream.close();
+        }
+        }
+}
 
-        let readers = new Array<MergerInfo<TValue>>();
-        // Create readers
-        for (let i = 0; i < files.length; i++) {
-            const f = files[i];
-            const readStream = fs.createReadStream(f, { highWaterMark: 100_000, flags: 'r'});
-            const reader = readline.createInterface({
-                input: readStream,
-                crlfDelay: Infinity
+export async function mergeSortedStreams<TValue>(
+    streams: Readable[],
+    outputStream: Writable,
+    inputMapFn: (x: string) => TValue,
+    outputMapFn: (x:TValue) => string,
+    compareFn: (a:TValue, b:TValue) => number,
+    outputDelimeter: string
+): Promise<void> {
+    // Nothing to merge exit right away.
+    if(streams.length === 0) return;
+
+    let readers = new Array<MergerInfo<TValue>>();
+    // Create readers
+    for (let i = 0; i < streams.length; i++) {
+        const readStream = streams[i];
+        const reader = readline.createInterface({
+            input: readStream,
+            crlfDelay: Infinity
+        });
+        const iterator: AsyncIterableIterator<string> = reader[Symbol.asyncIterator]();
+        const firstNext = await iterator.next();
+        if(!(firstNext.done?? false)) { 
+            readers.push({
+                data: inputMapFn(firstNext.value), 
+                done: firstNext.done ?? false,
+                iter: iterator,
+                reader: reader,
+                readStream: readStream
             });
-            const iterator: AsyncIterableIterator<string> = reader[Symbol.asyncIterator]();
-            const firstNext = await iterator.next();
-            if(!(firstNext.done?? false)) { 
-                readers.push({
-                    data: inputMapFn(firstNext.value), 
-                    done: firstNext.done ?? false,
-                    iter: iterator,
-                    reader: reader,
-                    readStream: readStream
-                });
-            }
-            else {
-                reader.close()
-                readStream.close();
-            }
+        }
+        else {
+            reader.close();
+        }
+    }
+
+    // Reverse sort based on the to do the merge
+    let mergerInfoReverseCompareFn = (a:MergerInfo<TValue>, b: MergerInfo<TValue>) => compareFn(b.data, a.data)
+    readers.sort(mergerInfoReverseCompareFn);
+    
+    var resultStream = outputStream;
+    let writeBuffer = new Array<string>();
+    let previousPromise: Promise<void> = Promise.resolve();
+    let bufferStringSize = 0;
+    const maxStringLength = Math.pow(2, 23) * .90; // 90% of the node js string max length
+    while(readers.length > 0) {
+        const mergerInfo: MergerInfo<TValue> = readers[readers.length - 1];
+        readers.length--;
+        let dataStr = outputMapFn(mergerInfo.data);
+        writeBuffer.push(dataStr);
+        bufferStringSize += dataStr.length;
+        if(bufferStringSize > maxStringLength) {
+            writeBuffer.push('')
+            let bufferStr = writeBuffer.join(outputDelimeter);
+            writeBuffer = new Array<string>();
+            bufferStringSize = 0;
+            await previousPromise;
+            previousPromise = new Promise<void>(
+                (res) => 
+                    resultStream.write(
+                        bufferStr,
+                        () => res())
+            );
         }
 
-        // Reverse sort based on the to do the merge
-        let mergerInfoReverseCompareFn = (a:MergerInfo<TValue>, b: MergerInfo<TValue>) => compareFn(b.data, a.data)
-        readers.sort(mergerInfoReverseCompareFn);
-        
-        var resultStream = outputStream;
-        let writeBuffer = new Array<string>();
-        let previousPromise: Promise<void> = Promise.resolve();
-        let bufferStringSize = 0;
-        const maxStringLength = Math.pow(2, 23) * .90; // 90% of the node js string max length
-        while(readers.length > 0) {
-            const mergerInfo: MergerInfo<TValue> = readers[readers.length - 1];
-            readers.length--;
-            let dataStr = outputMapFn(mergerInfo.data);
-            writeBuffer.push(dataStr);
-            bufferStringSize += dataStr.length;
-            if(bufferStringSize > maxStringLength) {
-                writeBuffer.push('')
-                let bufferStr = writeBuffer.join(mergeDelimeter);
-                writeBuffer = new Array<string>();
-                bufferStringSize = 0;
-                await previousPromise;
-                previousPromise = new Promise<void>(
-                    (res) => 
-                        resultStream.write(
-                            bufferStr,
-                            () => res())
-                );
-            }
-
-            var next: any;
-            do {
-                next = await mergerInfo.iter.next();
-            } while(next.value == undefined && !(next.done?? false))
-            if (!(next.done?? false)) {
-                mergerInfo.data = inputMapFn(next.value);
-                mergerInfo.done = next.done ?? false;
-                // Binary Search the index of equal or less than mergeInfo
-                let insertIdx = binarySearch(mergerInfo, readers, mergerInfoReverseCompareFn);
-                readers.splice(insertIdx, 0, mergerInfo);
-            }
-            else {
-                mergerInfo.reader.close();
-                mergerInfo.readStream.close();
-            }
+        var next: any;
+        do {
+            next = await mergerInfo.iter.next();
+        } while(next.value == undefined && !(next.done?? false))
+        if (!(next.done?? false)) {
+            mergerInfo.data = inputMapFn(next.value);
+            mergerInfo.done = next.done ?? false;
+            // Binary Search the index of equal or less than mergeInfo
+            let insertIdx = binarySearch(mergerInfo, readers, mergerInfoReverseCompareFn);
+            readers.splice(insertIdx, 0, mergerInfo);
         }
-        // Wait for the last promise
-        await previousPromise;
-
-        // Flush the last buffer
-        if(writeBuffer.length > 0) {
-            await new Promise<void>((resolve) => resultStream.write(writeBuffer.join('\n'), () => resolve()));
+        else {
+            mergerInfo.reader.close();
         }
+    }
+    // Wait for the last promise
+    await previousPromise;
+
+    // Flush the last buffer
+    if(writeBuffer.length > 0) {
+        await new Promise<void>((resolve) => resultStream.write(writeBuffer.join('\n'), () => resolve()));
+    }
 }
 
 function binarySearch<T>(

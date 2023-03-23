@@ -48,10 +48,11 @@ import { Readable, Writable } from 'stream';
  *                                        and {@link outputMapFn} functions respectively.
  * @param {number}      linesPerFile    - Maximum number of lines per temporary split file. Keep default value of 100K.
  *
+ *
  * @return {Promise<void>}              - Promise that once resolved the output sorted file has been completely
  *                                        created and temporary files has been cleaned up.
  */
-export declare function sortFile<TValue>(inputFile: string, outputFile: string, inputMapFn: (x: string) => TValue, outputMapFn: (x: TValue) => string, compareFn?: (a: TValue, b: TValue) => number, delimeter?: string, linesPerFile?: number): Promise<void>;
+export declare function sortFile<TValue>(inputFile: string, outputFile: string, inputMapFn?: (x: string) => TValue, outputMapFn?: (x: TValue) => string, compareFn?: (a: TValue, b: TValue) => number, inputDelimeter?: string, outputDelimeter?: string, linesPerFile?: number): Promise<void>;
 /**
  * The `sortStream()` method sorts the content from an input Readable stream and writes the results into an
  * output Writable stream.
@@ -104,4 +105,28 @@ export declare function sortFile<TValue>(inputFile: string, outputFile: string, 
  * @return {Promise<void>}              - Promise that once resolved the output sorted file has been completely
  *                                        created and temporary files has been cleaned up.
  */
-export declare function sortStream<TValue>(inputStream: Readable, outputStream: Writable, inputMapFn: (x: string) => TValue, outputMapFn: (x: TValue) => string, compareFn?: (a: TValue, b: TValue) => number, delimeter?: string, linesPerFile?: number): Promise<void>;
+export declare function sortStream<TValue>(inputStream: Readable, outputStream: Writable, inputMapFn?: (x: string) => TValue, outputMapFn?: (x: TValue) => string, compareFn?: (a: TValue, b: TValue) => number, delimeter?: string, linesPerFile?: number): Promise<void>;
+/**
+ * Function to split the file into multiple files with sorted data which are populated to the {@link outputFiles}
+ * parameter.
+ *
+ * @param {Readable[] | string[]}   inputs          - File path of the
+ * @param {string}                  splitPath       - The base path on where the files will be splited to.
+ * @param {Array<string>}           outputFiles     - List that will be populated with the output files.
+ * @param {Function}                inputMapFn      - Function to deserialize the input from each file line
+ *                                                     into a {@link TValue}.
+ * @param {Function}                outputMapFn     - Function serialize each of the {@link TValue} to a
+ *                                                    string.
+ * @param {Function}                compareFn       - Function used to sort the {@link TValue} for each of
+ *                                                    the files.
+ * @param {string}                  splitDelimeter  - String delimeter used to file into individual string
+ *                                                    to be mapped.
+ * @param {number}                  linesPerFile    - How many lines process for each file.
+ *
+ * @return {Promise<void>}                          - Promise that once resolved the output sorted file has
+ *                                                    been completely created and temporary files has been
+ *                                                    cleaned up.
+ */
+export declare function merge<TValue>(inputs: Readable[] | string[], outputStream: Writable, inputMapFn?: (x: string) => TValue, outputMapFn?: (x: TValue) => string, compareFn?: (a: TValue, b: TValue) => number, outputDelimeter?: string): Promise<void>;
+export declare function mergeSortedFiles<TValue>(files: string[], outputStream: Writable, inputMapFn: (x: string) => TValue, outputMapFn: (x: TValue) => string, compareFn: (a: TValue, b: TValue) => number, outputDelimeter: string): Promise<void>;
+export declare function mergeSortedStreams<TValue>(streams: Readable[], outputStream: Writable, inputMapFn: (x: string) => TValue, outputMapFn: (x: TValue) => string, compareFn: (a: TValue, b: TValue) => number, outputDelimeter: string): Promise<void>;

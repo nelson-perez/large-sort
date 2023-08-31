@@ -342,7 +342,7 @@ function flushBuffer<TValue>(
         let toWrite = mapped.join('\n')
         const filename = path.join(splitPath, `large-sort_${String(linesLoaded).padStart(10, '0')}.txt`);
         outputFiles.push(filename);
-        return new Promise((resolve) => fs.writeFile(filename, toWrite, resolve));
+        fs.writeFileSync(filename, toWrite);
 }
 
 type MergerInfo<T> = {

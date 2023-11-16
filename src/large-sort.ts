@@ -26,7 +26,7 @@ function deleteFiles(tempFolder: string) {
 }
 
 // Doing a best effort to clean any lingering split files
-process.on('SIGKILL', cleanTempFiles);
+process.on('SIGTERM', cleanTempFiles);
 process.on('beforeExit', cleanTempFiles);
 process.on('exit', cleanTempFiles);
 

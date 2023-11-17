@@ -1,63 +1,65 @@
 ![Large Sort JS](img/large_sort_js.png)
 
-[![Node.js CI](https://github.com/nelson-perez/large-sort/actions/workflows/node.js.yml/badge.svg)](https://github.com/nelson-perez/large-sort/actions/workflows/node.js.yml)
-[![Total Downloads](https://img.shields.io/npm/dt/large-sort.svg)](https://www.npmjs.com/package/large-sort)
-[![Start](https://img.shields.io/github/stars/nelson-perez/large-sort?style=flat-square)](https://github.com/nelson-perez/large-sort/stargazers)
-[![MIT Licence](https://badges.frapsoft.com/os/mit/mit.svg?v=103)](https://opensource.org/licenses/mit-license.php)
-[![Open Source Love](https://badges.frapsoft.com/os/v1/open-source.svg?v=103)](https://opensource.org/)
+**Attention**
+This repo is a fork of [large-sort](https://github.com/nelson-perez/large-sort) and is not actively maintained.
+The purpose if this repo is to have a usable large-sort without the `uv_signal_start EINVAL` error.
 
-<!--- [![large-sort](/advisor/npm-package/large-sort/badge.svg)](/advisor/npm-package/large-sort) -->
-
-[![NPM Package](https://nodei.co/npm/large-sort.png)](https://www.npmjs.com/package/large-sort)
-
-
-<!-- [![npm large-sort](img/npm_large-sort.png)](https://www.npmjs.com/package/large-sort) -->
+See this [PR](https://github.com/nelson-perez/large-sort/pull/3) for more context.
 
 # Overview
+
 Fast sorting library that parses, sorts and serializes the content of large files using [external merge sort](https://en.wikipedia.org/wiki/External_sorting) for NodeJS.Currently there are two functions `sortFile()` to sort the file content of large files and `sortStream()` to generically sort `Stream`.
 
-I've also enable the case of multi sorted stream merging exposing the internal __`merge()`__ which takes a list of filenames or `Readable` streams. Or the specific functions __`mergeSortedFiles()`__ that takes a filename list or __`mergeSortedStreams()`__ which takes a list of `Readables` streams. I wanted to exposse this as I saw there are some folks that need it and I exposed a _high performance_ version of an npm package similar to [multi-sort-stream](https://www.npmjs.com/package/multi-sort-stream?activeTab=readme).
+I've also enable the case of multi sorted stream merging exposing the internal **`merge()`** which takes a list of filenames or `Readable` streams. Or the specific functions **`mergeSortedFiles()`** that takes a filename list or **`mergeSortedStreams()`** which takes a list of `Readables` streams. I wanted to exposse this as I saw there are some folks that need it and I exposed a _high performance_ version of an npm package similar to [multi-sort-stream](https://www.npmjs.com/package/multi-sort-stream?activeTab=readme).
 
+### Additional planned features
 
-### Additional planned features:
-- [DONE] Enable ***custom delimeters*** for the data via `string` or `regex`.
+- [DONE] Enable _**custom delimeters**_ for the data via `string` or `regex`.
 - [DONE] Load the input from a `ReadStream` and output the sorted data into a `WriteStream` instead of file to file.
-- *[**exploring**]* - Create API to build the sort scenario based on a property/field name or an `extract property function` instead of a comparer function.
+- _[**exploring**]_ - Create API to build the sort scenario based on a property/field name or an `extract property function` instead of a comparer function.
   - This is an area of exploration to see if there could be performance advantages utilizing `number` and `string` specific sorting algorithms instead of relying on the comparer.
-- *[**exploring**]* - I've been experimenting a bit using `thread_workers` to help sort during the split process and although I did saw great performance, it comes with the disadvange passing the comparer as serializable JSON which is not possible to pass a function so it will require some refactoring like I mentioned above where instead of providing the compareFn you need provide a property/field you would like to sort with. I think I'll borrow some inspiration from [fast-sort](https://www.npmjs.com/package/fast-sort) which uses that similar builder approach to build the sorter before doing the actual sort but without the lambda capability when using `thread_workers`. I'll probably switch the logic depending if the caller provides a property or provides a function to either compare or resolve a property.
+- _[**exploring**]_ - I've been experimenting a bit using `thread_workers` to help sort during the split process and although I did saw great performance, it comes with the disadvange passing the comparer as serializable JSON which is not possible to pass a function so it will require some refactoring like I mentioned above where instead of providing the compareFn you need provide a property/field you would like to sort with. I think I'll borrow some inspiration from [fast-sort](https://www.npmjs.com/package/fast-sort) which uses that similar builder approach to build the sorter before doing the actual sort but without the lambda capability when using `thread_workers`. I'll probably switch the logic depending if the caller provides a property or provides a function to either compare or resolve a property.
 
 ## Jump to examples links
+
 ### [sortFile() examples](#usage-example-of-sortfile)
+
 ### [sortStream() examples](#usage-example-of-sortstream)
+
 ### [More examples](#additional-sort-examples)
 
 # Installation
+
 Install to your NodeJS project using [npm](https://npmjs.org/large-sort).
+
 ```bash
 npm install large-sort --save
 ```
+
 # Available functions
+
 ## `sortFile()`
-This method provides the necesary functionality that allows to parse line by line the input file deserializing from a `string` into an object or primitive that can be **compared**, **sorted** and **serialized** back into an output file. It sorts the data using an [external merge sort](https://en.wikipedia.org/wiki/External_sorting) algorithm which splits the file into multiple sorted temporary *k-files* and then merges each of the splited *k-files* into a single output file.
 
-The size of the splitted files is controlled by the maximun number of lines per file (`linesPerFile`) parameter or if the memory reaches more than ***1GB*** with a minumum of 1,000 lines whichever happens first.
+This method provides the necesary functionality that allows to parse line by line the input file deserializing from a `string` into an object or primitive that can be **compared**, **sorted** and **serialized** back into an output file. It sorts the data using an [external merge sort](https://en.wikipedia.org/wiki/External_sorting) algorithm which splits the file into multiple sorted temporary _k-files_ and then merges each of the splited _k-files_ into a single output file.
 
+The size of the splitted files is controlled by the maximun number of lines per file (`linesPerFile`) parameter or if the memory reaches more than _**1GB**_ with a minumum of 1,000 lines whichever happens first.
 
 ### Parameters of `sortFile()`
+
 |Name                   | Description   |
 |           -           |      -        |
-|***TValue***           | Type of the parsed value from the input file|
-|__inputFile__          | File path of the file that contains data delimited by a the `inputDelimeter` to be sorted.|
-|__outputFile__         | File path of the output sorted data delimited by the `outputDelimeter`.|
-|__inputMapFn__         | Function that maps/parses/deserializes a delimited `string` from the input file into a **TValue** type. _default_: `x => x`|
-|__outputMapFn__        | Function maps/serializes each **TValue** into a single line `string` for the output file. _default_: `x => String(x)`|
-|__compareFn__          | Comparer function of **TValue** types to define the sorting order. _default_: `(a, b) => a > b? 1 : -1`|
-|__inputDelimeter__     | String or Regex that delimits each input string before been mapped by the `inputMapFunc` function. _default_: `'\n'` |
-|__outputDelimeter__    | String delimeter to separate each output string after been mapped to string using the `outputMapFn` function. _default_: `'\n'` |
-|__linesPerFile__   | Max number of lines processed for each file split. _`It's recommended to keep the default value for performance.`_|
-
+|_**TValue**_           | Type of the parsed value from the input file|
+|**inputFile**          | File path of the file that contains data delimited by a the `inputDelimeter` to be sorted.|
+|**outputFile**         | File path of the output sorted data delimited by the `outputDelimeter`.|
+|**inputMapFn**         | Function that maps/parses/deserializes a delimited `string` from the input file into a **TValue** type. _default_: `x => x`|
+|**outputMapFn**        | Function maps/serializes each **TValue** into a single line `string` for the output file. _default_: `x => String(x)`|
+|**compareFn**          | Comparer function of **TValue** types to define the sorting order. _default_: `(a, b) => a > b? 1 : -1`|
+|**inputDelimeter**     | String or Regex that delimits each input string before been mapped by the `inputMapFunc` function. _default_: `'\n'` |
+|**outputDelimeter**    | String delimeter to separate each output string after been mapped to string using the `outputMapFn` function. _default_: `'\n'` |
+|**linesPerFile**   | Max number of lines processed for each file split. _`It's recommended to keep the default value for performance.`_|
 
 ### Function definition of `sortFile()`
+
 ```typescript
 /**
  * The `sortFile()` method sorts the content of an input file and writes the results into an output file.
@@ -130,7 +132,9 @@ export async function sortFile<TValue>(
 ```
 
 ### Usage example of `sortFile()`
+
 #### Sorting numbers
+
 Here is an example that explain each of the parameters and how to use it to sort a file with `Numbers` and outputs the numbers as strings.
 
 ```typescript
@@ -162,27 +166,29 @@ await sortFile<number>(
  ```
 
 ## `sortStream()`
-This method provides the necesary functionality that allows read and parse data from a stream given the provided delimeter. It deserializes from the input `string` into an object or primitive that can be **compared**, **sorted** and **serialized** back into to write into the output stream. It sorts the data using an [external merge sort](https://en.wikipedia.org/wiki/External_sorting) algorithm which splits the file into multiple sorted temporary *k-files* and then merges each of the splited *k-files* into the output stream.
 
-The size of the splitted files is controlled by the maximun number of lines per file (`linesPerFile`) parameter or if the memory reaches more than ***1GB*** with a minumum of 1,000 lines whichever happens first.
+This method provides the necesary functionality that allows read and parse data from a stream given the provided delimeter. It deserializes from the input `string` into an object or primitive that can be **compared**, **sorted** and **serialized** back into to write into the output stream. It sorts the data using an [external merge sort](https://en.wikipedia.org/wiki/External_sorting) algorithm which splits the file into multiple sorted temporary _k-files_ and then merges each of the splited _k-files_ into the output stream.
+
+The size of the splitted files is controlled by the maximun number of lines per file (`linesPerFile`) parameter or if the memory reaches more than _**1GB**_ with a minumum of 1,000 lines whichever happens first.
 
 > Note: It is recommended to use the `sortFile()` method when sorting files as it is quite efficient and tunned to perform at it's best.
 
 ### Parameters of `sortStream()`
+
 |Name                   | Description |
 |         -             |       -     |
-|***TValue***           | Type of the parsed value by the `inputMapFn` function|
-|__inputStream__        | Stream contains the input data delimited by the `inputDelimeter`.|
-|__outputStream__       | File path of the output sorted data delimited by a _newline_ `"\n"`.|
-|__inputMapFn__         | Function that maps/parses/deserializes a delimited `string` from the input file into a **TValue** type. _default_: `x => x`|
-|__outputMapFn__        | Function maps/serializes each **TValue** into a single line `string` for the output file. _default_: `x => String(x)`|
-|__compareFn__          | Comparer function of **TValue** types to define the sorting order. _default_: `(a, b) => a > b? 1 : -1`|
-|__inputDelimeter__     | String or Regex that delimits each input string before been mapped by the `inputMapFunc` function. _default_: `'\n'` |
-|__outputDelimeter__    | String delimeter to separate each output string after been mapped to string using the `outputMapFn` function. _default_: `'\n'` |
-|__linesPerFile__   | Max number of lines processed for each file split. _`It's recommended to keep the default value for performance.`_|
-
+|_**TValue**_           | Type of the parsed value by the `inputMapFn` function|
+|**inputStream**        | Stream contains the input data delimited by the `inputDelimeter`.|
+|**outputStream**       | File path of the output sorted data delimited by a _newline_ `"\n"`.|
+|**inputMapFn**         | Function that maps/parses/deserializes a delimited `string` from the input file into a **TValue** type. _default_: `x => x`|
+|**outputMapFn**        | Function maps/serializes each **TValue** into a single line `string` for the output file. _default_: `x => String(x)`|
+|**compareFn**          | Comparer function of **TValue** types to define the sorting order. _default_: `(a, b) => a > b? 1 : -1`|
+|**inputDelimeter**     | String or Regex that delimits each input string before been mapped by the `inputMapFunc` function. _default_: `'\n'` |
+|**outputDelimeter**    | String delimeter to separate each output string after been mapped to string using the `outputMapFn` function. _default_: `'\n'` |
+|**linesPerFile**   | Max number of lines processed for each file split. _`It's recommended to keep the default value for performance.`_|
 
 ### Function definition of `sortStream()`
+
 ```typescript
 /**
  * The `sortStream()` method sorts the content from an input Readable stream and writes the results into an 
@@ -254,11 +260,13 @@ export async function sortStream<TValue>(
 ```
 
 ## Usage example of `sortStream()`
+
 Similar to the `sortFile()` method, `sortStream()` it offers the same capabilities with the nuance of you'll be using Streams instead of files. But keep in mind if you want to do file to file sorting it's best to use the `sortFile()` function instead of creating the streams yourself.
 
 Bellow is an example showing how to use it.
 
 ### Example: Sorting numbers file and output to terminal
+
 Here is an example that explain each of the parameters and how to use it to sort a file with `Numbers` and outputs the numbers as strings to the terminal.
 
 ```typescript
@@ -296,19 +304,22 @@ await sortStream<number>(
 ```
 
 ## `merge()`
+
 Merge function that takes either a list of sorted files or sorted `Readable` streams and outputs to a `Writeable` output stream.
 
 ### Parameters of `merge()`
+
 |Name                   | Description |
 |         -             |       -     |
-|***TValue***           | Type of the parsed value by the `inputMapFn` function|
-|__inputs__             | List of filenames or streams with sorted data to merge.|
-|__inputMapFn__         | Function that maps/parses/deserializes a delimited `string` from the input file into a **TValue** type. _default_: `x => x`|
-|__outputMapFn__        | Function maps/serializes each **TValue** into a single line `string` for the output file. _default_: `x => String(x)`|
-|__compareFn__          | Comparer function of **TValue** types to define the sorting order. _default_: `(a, b) => a > b? 1 : -1`|
-|__outputDelimeter__    | String delimeter to separate each output string after been mapped to string using the `outputMapFn` function. _default_: `'\n'` |
+|_**TValue**_           | Type of the parsed value by the `inputMapFn` function|
+|**inputs**             | List of filenames or streams with sorted data to merge.|
+|**inputMapFn**         | Function that maps/parses/deserializes a delimited `string` from the input file into a **TValue** type. _default_: `x => x`|
+|**outputMapFn**        | Function maps/serializes each **TValue** into a single line `string` for the output file. _default_: `x => String(x)`|
+|**compareFn**          | Comparer function of **TValue** types to define the sorting order. _default_: `(a, b) => a > b? 1 : -1`|
+|**outputDelimeter**    | String delimeter to separate each output string after been mapped to string using the `outputMapFn` function. _default_: `'\n'` |
 
 ### Function definition of `merge()`
+
 ```typescript
 /**
  * Merges multiple sorted files or sorted Readable streams with data separated by a new line into an output 
@@ -335,19 +346,22 @@ export async function merge<TValue>(
 ```
 
 ## `mergeSortedFiles()`
+
 Merge function that takes a list of sorted files and outputs to a `Writeable` output stream.
 
 ### Parameters of `mergeSortedFiles()`
+
 |Name                   | Description |
 |         -             |       -     |
-|***TValue***           | Type of the parsed value by the `inputMapFn` function|
-|__files__              | List of filenames with sorted data to merge.|
-|__inputMapFn__         | Function that maps/parses/deserializes a delimited `string` from the input file into a **TValue** type. _default_: `x => x`|
-|__outputMapFn__        | Function maps/serializes each **TValue** into a single line `string` for the output file. _default_: `x => String(x)`|
-|__compareFn__          | Comparer function of **TValue** types to define the sorting order. _default_: `(a, b) => a > b? 1 : -1`|
-|__outputDelimeter__    | String delimeter to separate each output string after been mapped to string using the `outputMapFn` function. _default_: `'\n'` |
+|_**TValue**_           | Type of the parsed value by the `inputMapFn` function|
+|**files**              | List of filenames with sorted data to merge.|
+|**inputMapFn**         | Function that maps/parses/deserializes a delimited `string` from the input file into a **TValue** type. _default_: `x => x`|
+|**outputMapFn**        | Function maps/serializes each **TValue** into a single line `string` for the output file. _default_: `x => String(x)`|
+|**compareFn**          | Comparer function of **TValue** types to define the sorting order. _default_: `(a, b) => a > b? 1 : -1`|
+|**outputDelimeter**    | String delimeter to separate each output string after been mapped to string using the `outputMapFn` function. _default_: `'\n'` |
 
 ### Function definition of `mergeSortedFiles()`
+
 ```typescript
 /**
  * Merges multiple sorted files with data separated by a new line into an output Writeable stream.
@@ -377,20 +391,22 @@ export async function mergeSortedFiles<TValue>(
 ```
 
 ## mergeSortedStreams()
+
 Merge function that takes a list sorted `Readable` streams and outputs to a `Writeable` output stream.
 
 ### Parameters of `mergeSortedFiles()`
+
 |Name                   | Description |
 |         -             |       -     |
-|***TValue***           | Type of the parsed value by the `inputMapFn` function|
-|__streams__            | List of `Readable streams with sorted data to merge.|
-|__inputMapFn__         | Function that maps/parses/deserializes a delimited `string` from the input file into a **TValue** type. _default_: `x => x`|
-|__outputMapFn__        | Function maps/serializes each **TValue** into a single line `string` for the output file. _default_: `x => String(x)`|
-|__compareFn__          | Comparer function of **TValue** types to define the sorting order. _default_: `(a, b) => a > b? 1 : -1`|
-|__outputDelimeter__    | String delimeter to separate each output string after been mapped to string using the `outputMapFn` function. _default_: `'\n'` |
-
+|_**TValue**_           | Type of the parsed value by the `inputMapFn` function|
+|**streams**            | List of `Readable streams with sorted data to merge.|
+|**inputMapFn**         | Function that maps/parses/deserializes a delimited `string` from the input file into a **TValue** type. _default_: `x => x`|
+|**outputMapFn**        | Function maps/serializes each **TValue** into a single line `string` for the output file. _default_: `x => String(x)`|
+|**compareFn**          | Comparer function of **TValue** types to define the sorting order. _default_: `(a, b) => a > b? 1 : -1`|
+|**outputDelimeter**    | String delimeter to separate each output string after been mapped to string using the `outputMapFn` function. _default_: `'\n'` |
 
 ### Function definition of `mergeSortedStreams()`
+
 ```typescript
 /**
  * Merges multiple sorted streams with data separated by a new line into an output Writeable stream.
@@ -417,11 +433,12 @@ export async function mergeSortedStreams<TValue>(
     outputDelimeter: string): Promise<void>
 ```
 
-
 # Additional sort examples
+
 Here are examples showing the scenarios where this would be useful.
 
 ### Sort CSV file by the second column
+
  This example shows how to sort a csv file based on the value of the second column by parsing the csv into an array, sorting the array based on the second column and writting the array back into the csv format.
 
  ```typescript
@@ -449,6 +466,7 @@ await sortFile<string[]>(
  ```
 
 ### Sort CSV input and outputs lines of JSON
+
  This example shows how to sort a csv file based on the value of the second column and output parsed JSON. Does this parsing the csv into an object with fiels `col1` and `col2`, sorts these objects by the `col2` field and writes the object to a output lines as JSON.
 
  ```typescript
@@ -478,7 +496,8 @@ await sortFile<{col1: string, col2: string}>(
 
  ```
 
- ### Sort CSV by the combination of two columns
+### Sort CSV by the combination of two columns
+
  This example shows how to sort a csv file based on the value columns 1 and column2 by parsing the csv into an object containing a field `sortBy` and the array of values, sorts the objects by the `sortBy` field and writes the array of values into the csv format.
 
  *Note:*

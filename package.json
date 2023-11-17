@@ -1,6 +1,6 @@
 {
-  "name": "large-sort",
-  "version": "0.2.3",
+  "name": "@novom/large-sort",
+  "version": "0.2.4",
   "type": "commonjs",
   "description": "Fast Large file sorting library using external merge sort for NodeJS",
   "main": "./lib/large-sort.js",
@@ -14,12 +14,19 @@
     "name": "Nelson J Perez",
     "email": "nperez@nelsonperez.com"
   },
+  "contributors": [
+    {
+      "name": "Novom Interactive",
+      "email": "infra@novominteractive.com",
+      "contributions": 1
+    }
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nelson-perez/large-sort"
+    "url": "git+https://github.com/novom/large-sort"
   },
-  "homepage": "https://github.com/nelson-perez/large-sort#readme",
+  "homepage": "https://github.com/novom/large-sort#readme",
   "keywords": [
     "sort",
     "sorting",
@@ -33,7 +40,9 @@
     "swap",
     "typescript"
   ],
-  "files": ["./lib/**/*"],
+  "files": [
+    "./lib/**/*"
+  ],
   "devDependencies": {
     "@types/node": "^13.1.7",
     "rimraf": "^3.0.2",

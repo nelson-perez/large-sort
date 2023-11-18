@@ -109,7 +109,7 @@ export async function sortFile<TValue>(
         TEMP_SORTS_TO_CLEAN_BEFORE_EXIT.set(tempFolder, () => deleteFiles(tempFolder));
 
         try {
-            const inputStream = fs.createReadStream(inputFile, {highWaterMark: (1_000 * 1024), flags: 'r'});
+            const inputStream = fs.createReadStream(inputFile, {highWaterMark: Math.pow(2, 20), flags: 'r'});
 
             // Wait till the stream is open
             await new Promise<void>((r) => inputStream.once('open', r));
@@ -120,7 +120,7 @@ export async function sortFile<TValue>(
             const tempBase = inputBase + '.temp';
             const tempFile = path.join(tempFolder, tempBase);
 
-            const outputStream = fs.createWriteStream(tempFile, { highWaterMark: 10_000_000, encoding: "utf-8", flags: 'w'});
+            const outputStream = fs.createWriteStream(tempFile, { highWaterMark: Math.pow(2, 23), encoding: "utf-8", flags: 'w'});
 
             // Wait till the result stream is open
             await new Promise<void>((r) => outputStream.once('open', r));
@@ -307,7 +307,7 @@ async function split<TValue>(
                 }
                 // Process the last buffer if needed
                 if(buffer.length !== 0) {
-                    flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn);
+                    flushBuffer(buffer, linesLoaded, splitPath, outputFiles, outputMapFn, compareFn)
                 }
                 callback();
             }
@@ -542,11 +542,12 @@ function binarySearch<T>(
                 return mid;
             }
             const beforePivot = array[mid - 1];
-            if(compareFn(pivot, target) >= 0 && compareFn(beforePivot, target) < 0)
+            const comparePivotResult = compareFn(pivot, target);
+            if(comparePivotResult >= 0 && compareFn(beforePivot, target) < 0)
             {
                 return mid;
             }
-            else if(compareFn(pivot, target) > 0) {
+            else if(comparePivotResult > 0) {
                 end = mid;
             }
             else {

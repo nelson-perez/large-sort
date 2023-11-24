@@ -20,6 +20,7 @@ function cleanTempFiles(): void {
 
 function deleteFiles(tempFolder: string) {
     try {
+        // console.log({cleaningTempFolder: tempFolder});
         fs.rmdirSync(tempFolder);
     }
     catch {}
@@ -340,7 +341,7 @@ function flushBuffer<TValue>(
         let mapped = sorted.map(outputMapFn);
         mapped.push(''); // Extra so it has a new line at the end.
 
-        let toWrite = mapped.join('\n')
+        let toWrite = mapped.join('\n');
         const filename = path.join(splitPath, `large-sort_${String(linesLoaded).padStart(10, '0')}.txt`);
         outputFiles.push(filename);
         fs.writeFileSync(filename, toWrite);
@@ -348,7 +349,6 @@ function flushBuffer<TValue>(
 
 type MergerInfo<T> = {
     data: T,
-    done: boolean,
     iter: AsyncIterableIterator<string>,
     reader: readline.Interface,
     readStream: Readable
@@ -454,26 +454,23 @@ export async function mergeSortedStreams<TValue>(
 
         let readers = new Array<MergerInfo<TValue>>();
         // Create readers
-        for (let i = 0; i < streams.length; i++) {
-            const readStream = streams[i];
+        for (const readStream of streams) {
             const reader = readline.createInterface({
                 input: readStream,
                 crlfDelay: Infinity
             });
             const iterator: AsyncIterableIterator<string> = reader[Symbol.asyncIterator]();
             const firstNext = await iterator.next();
-            if(!(firstNext.done?? false)) { 
-                readers.push({
-                    data: inputMapFn(firstNext.value), 
-                    done: firstNext.done ?? false,
-                    iter: iterator,
-                    reader: reader,
-                    readStream: readStream
-                });
-            }
-            else {
+            if(firstNext.done) {
                 reader.close();
+                continue;
             }
+            readers.push({
+                data: inputMapFn(firstNext.value),
+                iter: iterator,
+                reader: reader,
+                readStream: readStream
+            });
         }
 
         // Reverse sort based on the to do the merge
@@ -485,17 +482,19 @@ export async function mergeSortedStreams<TValue>(
         let previousPromise: Promise<void> = Promise.resolve();
         let bufferStringSize = 0;
         const maxStringLength = Math.pow(2, 23) * .90; // 90% of the node js string max length
-        while(readers.length > 0) {
-            const mergerInfo: MergerInfo<TValue> = readers[readers.length - 1];
-            readers.length--;
+        // Using index to avoid the (array.length - 1) operations
+        let lastReaderIdx = readers.length - 1;
+        let beforeLastReaderIdx = readers.length - 2;
+        // Looping till there is only one left
+        while(readers.length !== 1) {
+            const mergerInfo: MergerInfo<TValue> = readers[lastReaderIdx] as MergerInfo<TValue>;
             let dataStr = outputMapFn(mergerInfo.data);
-            writeBuffer.push(dataStr);
             bufferStringSize += dataStr.length;
             if(bufferStringSize > maxStringLength) {
                 writeBuffer.push('')
                 let bufferStr = writeBuffer.join(outputDelimeter);
-                writeBuffer = new Array<string>();
-                bufferStringSize = 0;
+                writeBuffer = [];
+                bufferStringSize = dataStr.length;
                 await previousPromise;
                 previousPromise = new Promise<void>(
                     (res) => 
@@ -504,29 +503,65 @@ export async function mergeSortedStreams<TValue>(
                             () => res())
                 );
             }
-
-            var next: any;
-            do {
-                next = await mergerInfo.iter.next();
-            } while(next.value == undefined && !(next.done?? false))
-            if (!(next.done?? false)) {
-                mergerInfo.data = inputMapFn(next.value);
-                mergerInfo.done = next.done ?? false;
-                // Binary Search the index of equal or less than mergeInfo
-                let insertIdx = binarySearch(mergerInfo, readers, mergerInfoReverseCompareFn);
-                readers.splice(insertIdx, 0, mergerInfo);
-            }
-            else {
+            writeBuffer.push(dataStr);
+            let next: any;
+            next = await mergerInfo.iter.next();
+            if (next.done) {
+                // Cleaning mergeInfo once the reader is done.
                 mergerInfo.reader.close();
+                readers.pop();
+                lastReaderIdx--;
+                beforeLastReaderIdx--;
+            } else {
+                // Map the object to the output
+                mergerInfo.data = inputMapFn(next.value);
+                // Checking if it needs to be re-index the merge info if the previous is more than itself
+                const previous = readers[beforeLastReaderIdx];
+                if(mergerInfoReverseCompareFn(mergerInfo,  previous) < 0) {
+                    readers.pop();
+                    let insertIdx = binarySearch(mergerInfo, readers, mergerInfoReverseCompareFn);
+                    readers.splice(insertIdx, 0, mergerInfo);
+                }
             }
         }
-        // Wait for the last promise
-        await previousPromise;
 
-        // Flush the last buffer
-        if(writeBuffer.length > 0) {
-            await new Promise<void>((resolve) => resultStream.write(writeBuffer.join('\n'), () => resolve()));
+        // Taking care of the last remaining stream
+        const lastMergeInfo = readers[0];
+        let next = await lastMergeInfo.iter.next();
+        const lastMergeInfoDataOutput = outputMapFn(lastMergeInfo.data);
+
+        bufferStringSize += lastMergeInfoDataOutput.length;
+        if(bufferStringSize > maxStringLength) {
+            const toWrite = writeBuffer.join(outputDelimeter);
+            await previousPromise;
+            previousPromise = new Promise<void>((resolve) => resultStream.write(toWrite, () => resolve()));
+            bufferStringSize = lastMergeInfoDataOutput.length;
+            writeBuffer = [];
         }
+        writeBuffer.push(lastMergeInfoDataOutput);
+        while(!next.done) {
+            const input = inputMapFn(next.value);
+            const output = outputMapFn(input);
+            bufferStringSize += output.length;
+            if(bufferStringSize > maxStringLength) {
+                // Flush buffer
+                const toWrite = writeBuffer.join(outputDelimeter);
+                await previousPromise;
+                previousPromise = new Promise<void>((resolve) => resultStream.write(toWrite, () => resolve()));
+                bufferStringSize = output.length;
+                writeBuffer = [];
+            }
+            writeBuffer.push(output);
+            next = await lastMergeInfo.iter.next();
+        }
+
+        lastMergeInfo.reader.close();
+
+        // Flushing the last buffer
+        const toWrite = writeBuffer.join(outputDelimeter)
+        // Wait for the previous promise
+        await previousPromise;
+        await new Promise<void>((resolve) => resultStream.write(toWrite, () => resolve()));
 }
 
 function binarySearch<T>(
@@ -538,23 +573,16 @@ function binarySearch<T>(
         while(start != end - 1) {
             const mid = Math.floor((start + end) / 2);
             const pivot = array[mid];
-            if(mid == 0) {
-                return mid;
-            }
-            const beforePivot = array[mid - 1];
-            const comparePivotResult = compareFn(pivot, target);
-            if(comparePivotResult >= 0 && compareFn(beforePivot, target) < 0)
-            {
-                return mid;
-            }
-            else if(comparePivotResult > 0) {
-                end = mid;
-            }
-            else {
+            if(compareFn(pivot, target) < 0) {
                 start = mid;
             }
+            else {
+                const beforePivot = array[mid - 1];
+                if(compareFn(beforePivot, target) < 0) return mid;
+                end = mid;
+            }
         }
-        if(start == array.length - 1 && compareFn(array[start], target) < 0) {
+        if(start === array.length - 1 && compareFn(array[start], target) < 0) {
             return start + 1;
         }
         return start;

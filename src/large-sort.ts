@@ -20,7 +20,6 @@ function cleanTempFiles(): void {
 
 function deleteFiles(tempFolder: string) {
     try {
-        // console.log({cleaningTempFolder: tempFolder});
         fs.rmdirSync(tempFolder);
     }
     catch {}

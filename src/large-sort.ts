@@ -20,10 +20,13 @@ function cleanTempFiles(): void {
 
 function deleteFiles(tempFolder: string) {
     try {
-        fs.rmdirSync(tempFolder);
+        fs.rmdirSync(tempFolder, {recursive: true, retryDelay: 500, maxRetries: 6});
     }
-    catch {}
+    catch(e) {
+        console.warn(`Error while removing temporary directory: ${tempFolder}, Error: ${e}`);
+    }
 }
+
 
 // Doing a best effort to clean any lingering split files
 process.on('SIGINT', cleanTempFiles);

@@ -494,7 +494,7 @@ export async function mergeSortedStreams<TValue>(
             bufferStringSize += dataStr.length;
             if(bufferStringSize > maxStringLength) {
                 writeBuffer.push('')
-                let bufferStr = writeBuffer.join(outputDelimeter);
+                let bufferStr = writeBuffer.join(outputDelimeter) + outputDelimeter;
                 writeBuffer = [];
                 bufferStringSize = dataStr.length;
                 await previousPromise;
@@ -534,7 +534,7 @@ export async function mergeSortedStreams<TValue>(
 
         bufferStringSize += lastMergeInfoDataOutput.length;
         if(bufferStringSize > maxStringLength) {
-            const toWrite = writeBuffer.join(outputDelimeter);
+            const toWrite = writeBuffer.join(outputDelimeter) + outputDelimeter;
             await previousPromise;
             previousPromise = new Promise<void>((resolve) => resultStream.write(toWrite, () => resolve()));
             bufferStringSize = lastMergeInfoDataOutput.length;
@@ -547,7 +547,7 @@ export async function mergeSortedStreams<TValue>(
             bufferStringSize += output.length;
             if(bufferStringSize > maxStringLength) {
                 // Flush buffer
-                const toWrite = writeBuffer.join(outputDelimeter);
+                const toWrite = writeBuffer.join(outputDelimeter) + outputDelimeter;
                 await previousPromise;
                 previousPromise = new Promise<void>((resolve) => resultStream.write(toWrite, () => resolve()));
                 bufferStringSize = output.length;
@@ -560,7 +560,7 @@ export async function mergeSortedStreams<TValue>(
         lastMergeInfo.reader.close();
 
         // Flushing the last buffer
-        const toWrite = writeBuffer.join(outputDelimeter)
+        const toWrite = writeBuffer.join(outputDelimeter) + outputDelimeter
         // Wait for the previous promise
         await previousPromise;
         await new Promise<void>((resolve) => resultStream.write(toWrite, () => resolve()));

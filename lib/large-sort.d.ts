@@ -1,5 +1,5 @@
 /// <reference types="node" />
-import { Readable, Writable } from 'stream';
+import { Transform, Readable, Writable } from 'stream';
 /**
  * The `sortFile()` method sorts the content of an input file and writes the results into an output file.
  * It's designed to handled large files that would not fit into memory by using an external merge sort algorithm.
@@ -118,7 +118,7 @@ export declare function sortFile<TValue>(inputFile: string, outputFile: string, 
  * @return {Promise<void>}                  - Promise that once resolved the output sorted stream has been completely
  *                                            created and temporary files had been cleaned up.
  */
-export declare function sortStream<TValue>(inputStream: Readable, outputStream: Writable, inputMapFn?: (x: string) => TValue, outputMapFn?: (x: TValue) => string, compareFn?: (a: TValue, b: TValue) => number, inputDelimeter?: string | RegExp, outputDelimeter?: string, linesPerFile?: number): Promise<void>;
+export declare function sortStream<TValue>(inputStream: Readable | Transform, outputStream: Writable, inputMapFn?: (x: string) => TValue, outputMapFn?: (x: TValue) => string, compareFn?: (a: TValue, b: TValue) => number, inputDelimeter?: string | RegExp, outputDelimeter?: string, linesPerFile?: number): Promise<void>;
 /**
  * Merges multiple sorted files or sorted Readable streams with data separated by a new line into an output
  * Writeable stream.

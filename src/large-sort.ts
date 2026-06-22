@@ -20,7 +20,7 @@ function cleanTempFiles(): void {
 
 function deleteFiles(tempFolder: string) {
     try {
-        fs.rmdirSync(tempFolder, {recursive: true, retryDelay: 500, maxRetries: 6});
+        fs.rmSync(tempFolder, {recursive: true, retryDelay: 500, maxRetries: 6});
     }
     catch(e) {
         console.warn(`Error while removing temporary directory: ${tempFolder}, Error: ${e}`);
@@ -197,7 +197,7 @@ export async function sortFile<TValue>(
  *                                            created and temporary files had been cleaned up.
  */
 export async function sortStream<TValue>(
-    inputStream: Readable,
+    inputStream: Readable | Transform,
     outputStream: Writable,
     inputMapFn: (x: string) => TValue = x => x as TValue,
     outputMapFn: (x:TValue) => string = x => String(x),
@@ -240,7 +240,7 @@ export async function sortStream<TValue>(
  *                                               created and temporary files has been cleaned up.
  */
 async function split<TValue>(
-    inputStream: Readable,
+    inputStream: Readable | Transform,
     splitPath: string,
     outputFiles: Array<string>,
     inputMapFn: (x: string) => TValue,
